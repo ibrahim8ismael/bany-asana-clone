@@ -1,0 +1,412 @@
+{
+  "generatedAt": "2026-04-01T04:48:24.161Z",
+  "version": 1,
+  "skillCount": 21,
+  "referenceCount": 10,
+  "availableCommands": [
+    "/adapt",
+    "/animate",
+    "/arrange",
+    "/audit",
+    "/bolder",
+    "/clarify",
+    "/colorize",
+    "/critique",
+    "/delight",
+    "/distill",
+    "/extract",
+    "/frontend-design",
+    "/harden",
+    "/normalize",
+    "/onboard",
+    "/optimize",
+    "/overdrive",
+    "/polish",
+    "/quieter",
+    "/teach-impeccable",
+    "/typeset"
+  ],
+  "environment": {
+    "noticeFilePresent": true,
+    "designContextFilePresent": false
+  },
+  "skills": [
+    {
+      "name": "adapt",
+      "file": "adapt.md",
+      "description": "Adapt designs to work across different screen sizes, devices, contexts, or platforms. Implements breakpoints, fluid layouts, and touch targets. Use when the user mentions responsive design, mobile layouts, breakpoints, viewport adaptation, or cross-device compatibility.",
+      "userInvocable": true,
+      "argumentHint": "[target] [context (mobile, tablet, print...)]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "animate",
+      "file": "animate.md",
+      "description": "Review a feature and enhance it with purposeful animations, micro-interactions, and motion effects that improve usability and delight. Use when the user mentions adding animation, transitions, micro-interactions, motion design, hover effects, or making the UI feel more alive.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "arrange",
+      "file": "arrange.md",
+      "description": "Improve layout, spacing, and visual rhythm. Fixes monotonous grids, inconsistent spacing, and weak visual hierarchy. Use when the user mentions layout feeling off, spacing issues, visual hierarchy, crowded UI, alignment problems, or wanting better composition.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [
+          "reference/spatial-design.md"
+        ],
+        "files": []
+      }
+    },
+    {
+      "name": "audit",
+      "file": "audit.md",
+      "description": "Run technical quality checks across accessibility, performance, theming, responsive design, and anti-patterns. Generates a scored report with P0-P3 severity ratings and actionable plan. Use when the user wants an accessibility check, performance audit, or technical quality review.",
+      "userInvocable": true,
+      "argumentHint": "[area (feature, page, component...)]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "adapt",
+          "animate",
+          "arrange",
+          "bolder",
+          "clarify",
+          "colorize",
+          "critique",
+          "delight",
+          "distill",
+          "extract",
+          "frontend-design",
+          "harden",
+          "normalize",
+          "onboard",
+          "optimize",
+          "overdrive",
+          "polish",
+          "quieter",
+          "teach-impeccable",
+          "typeset"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "bolder",
+      "file": "bolder.md",
+      "description": "Amplify safe or boring designs to make them more visually interesting and stimulating. Increases impact while maintaining usability. Use when the user says the design looks bland, generic, too safe, lacks personality, or wants more visual impact and character.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "clarify",
+      "file": "clarify.md",
+      "description": "Improve unclear UX copy, error messages, microcopy, labels, and instructions to make interfaces easier to understand. Use when the user mentions confusing text, unclear labels, bad error messages, hard-to-follow instructions, or wanting better UX writing.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "colorize",
+      "file": "colorize.md",
+      "description": "Add strategic color to features that are too monochromatic or lack visual interest, making interfaces more engaging and expressive. Use when the user mentions the design looking gray, dull, lacking warmth, needing more color, or wanting a more vibrant or expressive palette.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "critique",
+      "file": "critique.md",
+      "description": "Evaluate design from a UX perspective, assessing visual hierarchy, information architecture, emotional resonance, cognitive load, and overall quality with quantitative scoring, persona-based testing, and actionable feedback. Use when the user asks to review, critique, evaluate, or give feedback on a design or component.",
+      "userInvocable": true,
+      "argumentHint": "[area (feature, page, component...)]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "adapt",
+          "animate",
+          "arrange",
+          "audit",
+          "bolder",
+          "clarify",
+          "colorize",
+          "delight",
+          "distill",
+          "extract",
+          "frontend-design",
+          "harden",
+          "normalize",
+          "onboard",
+          "optimize",
+          "overdrive",
+          "polish",
+          "quieter",
+          "teach-impeccable",
+          "typeset"
+        ],
+        "references": [
+          "reference/cognitive-load.md",
+          "reference/heuristics-scoring.md",
+          "reference/personas.md"
+        ],
+        "files": [
+          "CLAUDE.md"
+        ]
+      }
+    },
+    {
+      "name": "delight",
+      "file": "delight.md",
+      "description": "Add moments of joy, personality, and unexpected touches that make interfaces memorable and enjoyable to use. Elevates functional to delightful. Use when the user asks to add polish, personality, animations, micro-interactions, delight, or make an interface feel fun or memorable.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "distill",
+      "file": "distill.md",
+      "description": "Simplify content, flows, and decision points to the essentials. Use when a page, feature, or workflow feels overloaded, confusing, or too dense.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "extract",
+      "file": "extract.md",
+      "description": "Pull repeated UI patterns into shared components, tokens, and helpers. Use when the codebase has duplication or when a design system needs stronger reuse.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "frontend-design",
+      "file": "frontend-design.md",
+      "description": "Create distinctive, production-grade frontend interfaces with high design quality. Generates creative, polished code that avoids generic AI aesthetics. Use when the user asks to build web components, pages, artifacts, posters, or applications, or when any design skill requires project context.",
+      "userInvocable": false,
+      "argumentHint": null,
+      "license": "Apache 2.0. Based on Anthropic's frontend-design skill. See NOTICE.md for attribution.",
+      "dependencies": {
+        "skills": [
+          "teach-impeccable"
+        ],
+        "references": [
+          "reference/color-and-contrast.md",
+          "reference/interaction-design.md",
+          "reference/motion-design.md",
+          "reference/responsive-design.md",
+          "reference/spatial-design.md",
+          "reference/typography.md",
+          "reference/ux-writing.md"
+        ],
+        "files": [
+          ".impeccable.md"
+        ]
+      }
+    },
+    {
+      "name": "harden",
+      "file": "harden.md",
+      "description": "Strengthen UX reliability with better edge states, validation, permissions, destructive action handling, and recovery paths. Use when the user wants a flow made safer, more robust, or more production-ready.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "normalize",
+      "file": "normalize.md",
+      "description": "Standardize inconsistent UI patterns, components, spacing, naming, and states. Use when the interface feels uneven, duplicated, or visually inconsistent.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "onboard",
+      "file": "onboard.md",
+      "description": "Improve first-run and early-use experiences with better empty states, setup flows, guidance, and activation paths. Use when the user wants stronger onboarding, activation, or first-time UX.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "optimize",
+      "file": "optimize.md",
+      "description": "Diagnoses and fixes UI performance across loading speed, rendering, animations, images, and bundle size. Use when the user mentions slow, laggy, janky, performance, bundle size, load time, or wants a faster, smoother experience.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "overdrive",
+      "file": "overdrive.md",
+      "description": "Push a design or feature into a more ambitious, high-impact direction while keeping it usable. Use when the user wants a bigger swing than normal polish or asks for something more daring and memorable.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [
+          "frontend-design",
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "polish",
+      "file": "polish.md",
+      "description": "Run a final refinement pass across interaction details, spacing, copy, states, and consistency. Use after implementation when the UI works but needs finish and quality.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "quieter",
+      "file": "quieter.md",
+      "description": "Reduce visual noise and overdesigned UI so the interface feels calmer, clearer, and more focused. Use when the design feels busy, loud, cluttered, or distracting.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    },
+    {
+      "name": "teach-impeccable",
+      "file": "teach-impeccable.md",
+      "description": "Gather and persist the design context that all design skills depend on. Use before design work when audience, use cases, tone, or brand direction are missing.",
+      "userInvocable": true,
+      "argumentHint": "[product or feature]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": [
+          ".impeccable.md",
+          "CLAUDE.md"
+        ]
+      }
+    },
+    {
+      "name": "typeset",
+      "file": "typeset.md",
+      "description": "Improve typography, readability, and text hierarchy across a page or feature. Use when text feels flat, hard to scan, cramped, or visually inconsistent.",
+      "userInvocable": true,
+      "argumentHint": "[target]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": []
+      }
+    }
+  ],
+  "references": [
+    "reference/cognitive-load.md",
+    "reference/color-and-contrast.md",
+    "reference/heuristics-scoring.md",
+    "reference/interaction-design.md",
+    "reference/motion-design.md",
+    "reference/personas.md",
+    "reference/responsive-design.md",
+    "reference/spatial-design.md",
+    "reference/typography.md",
+    "reference/ux-writing.md"
+  ]
+}
