@@ -73,7 +73,7 @@ export default function Topbar({ user, hasUnreadNotifications = false }: { user?
           className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-[#6cc3d5] text-xs font-semibold text-[#243238] transition-opacity hover:opacity-85 sm:ml-1 sm:h-9 sm:w-9"
         >
           {user?.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
+             
             <img src={user.image} alt="Avatar" className="h-full w-full object-cover" />
           ) : (
             user?.name?.charAt(0) || "A"

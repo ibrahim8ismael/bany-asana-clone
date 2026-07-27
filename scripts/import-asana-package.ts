@@ -75,6 +75,7 @@ function normalizeLookup(value: string | null | undefined) {
   return normalizeText(value).toLowerCase().replace(/\s+/g, " ")
 }
 
+ 
 function parseBoolean(value: string | null | undefined) {
   return ["true", "1", "yes"].includes(normalizeLookup(value))
 }

@@ -1,0 +1,36 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.example
+    environment:
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=rG/jYKnMICr63IWCoNdO3YDLVcKBpiJPSqhVeU7l+kX99xyqVKmBvajc4UJE=
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/asana_clone?schema=public
+      - ASANA_TOKEN_ENCRYPTION_KEY=12345678901234567890123456789012
+    depends_on:
+      db:
+        condition: service_healthy
+  
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: asana_clone
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

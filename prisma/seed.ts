@@ -154,12 +154,15 @@ async function main() {
   });
 
   // 6. Create Sections
+ 
   const [todo, inProgress, done] = await Promise.all([
     prisma.section.create({ data: { project_id: boardProject.id, name: 'To Do', position: 1000 } }),
     prisma.section.create({ data: { project_id: boardProject.id, name: 'In Progress', position: 2000 } }),
     prisma.section.create({ data: { project_id: boardProject.id, name: 'Done', position: 3000 } }),
   ]);
 
+ 
+ 
   const [backlog, active, completed] = await Promise.all([
     prisma.section.create({ data: { project_id: listProject.id, name: 'Backlog', position: 1000 } }),
     prisma.section.create({ data: { project_id: listProject.id, name: 'Active Design', position: 2000 } }),
@@ -175,6 +178,7 @@ async function main() {
     },
   });
 
+ 
   const [p1, p2, p3] = await Promise.all([
     prisma.customFieldOption.create({ data: { custom_field_id: priorityField.id, label: 'P1', color: 'red', position: 1 } }),
     prisma.customFieldOption.create({ data: { custom_field_id: priorityField.id, label: 'P2', color: 'yellow', position: 2 } }),
@@ -213,6 +217,7 @@ async function main() {
     },
   });
 
+ 
   const task3 = await prisma.task.create({
     data: {
       workspace_id: workspace.id,

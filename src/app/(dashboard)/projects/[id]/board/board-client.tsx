@@ -61,7 +61,8 @@ export default function BoardClient({ project }: { project: any }) {
     const sourceSectionIndex = data.sections.findIndex((s: any) => s.id === source.droppableId)
     const destSectionIndex = data.sections.findIndex((s: any) => s.id === destination.droppableId)
     
-    const newSections = [...data.sections]
+    // Create deep copy of sections and their tasks to avoid mutating React state
+    const newSections = data.sections.map((s: any) => ({ ...s, tasks: [...s.tasks] }))
     const [sourceTask] = newSections[sourceSectionIndex].tasks.splice(source.index, 1)
     newSections[destSectionIndex].tasks.splice(destination.index, 0, sourceTask)
     setData({ ...data, sections: newSections })
@@ -161,7 +162,9 @@ export default function BoardClient({ project }: { project: any }) {
     low: { bg: "bg-blue-500/20", text: "text-blue-400" },
   }
 
-  if (typeof window === "undefined") return null
+  const [isMounted, setIsMounted] = useState(false)
+  useEffect(() => setIsMounted(true), [])
+  if (!isMounted) return null
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>

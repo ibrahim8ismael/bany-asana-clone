@@ -130,7 +130,7 @@ export default function ProjectMembersManager({
         {localMembers.map((member) => (
           <div key={member.id} className={compact ? "flex flex-col gap-3 rounded-2xl border border-white/5 bg-[#202123] p-3" : "flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/5 bg-[#262729] p-4"}>
             <div className="flex items-center gap-3 min-w-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
+              { }
               <img
                 src={member.user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.user.full_name)}&size=32`}
                 alt={member.user.full_name}

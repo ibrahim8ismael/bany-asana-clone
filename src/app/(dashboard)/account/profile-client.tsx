@@ -130,7 +130,7 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
           <div className="flex items-center gap-4">
             <div className="h-16 w-16 overflow-hidden rounded-3xl border border-white/10 bg-white/5 flex items-center justify-center text-white text-xl font-bold">
               {avatarPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
+                 
                 <img src={avatarPreview} alt={fullName || user.full_name} className="h-full w-full object-cover" />
               ) : (
                 (fullName || user.full_name).charAt(0)
@@ -169,7 +169,7 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
                 <div className="flex items-center gap-4 rounded-xl border border-white/5 bg-[#1f2022] p-4">
                   <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center text-lg font-bold text-white">
                     {avatarPreview ? (
-                      // eslint-disable-next-line @next/next/no-img-element
+                       
                       <img src={avatarPreview} alt="Avatar preview" className="h-full w-full object-cover" />
                     ) : (
                       (fullName || user.full_name).charAt(0)

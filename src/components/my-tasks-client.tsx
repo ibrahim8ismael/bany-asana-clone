@@ -207,7 +207,7 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
     
     if (groupBy === "none") {
       const { droppableId } = destination
-      let updates: any = {}
+      const updates: any = {}
       
       if (droppableId === "today") {
         updates.due_date = new Date()

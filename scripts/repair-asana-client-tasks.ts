@@ -125,6 +125,7 @@ async function main() {
     },
   })
 
+ 
   const hiddenSourceProjects = await prisma.project.updateMany({
     where: {
       workspace_id: importRun.workspace_id,

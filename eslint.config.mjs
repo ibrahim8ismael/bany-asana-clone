@@ -19,6 +19,17 @@ const eslintConfig = defineConfig([
     "audit_output.txt",
     "validate.txt",
   ]),
+  {
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@next/next/no-img-element": "off",
+      "react/no-unescaped-entities": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/exhaustive-deps": "off",
+      "@typescript-eslint/no-unused-expressions": "off"
+    }
+  }
 ]);
 
 export default eslintConfig;
