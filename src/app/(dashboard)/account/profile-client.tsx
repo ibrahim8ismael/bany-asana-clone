@@ -124,58 +124,59 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
   }
 
   return (
-    <div className="h-full min-h-0 overflow-auto custom-scrollbar bg-[#1e1f21]">
-      <div className="max-w-5xl mx-auto px-8 py-10 space-y-8">
+    <div className="h-full min-h-0 overflow-auto custom-scrollbar bg-[#18181b]">
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="h-16 w-16 overflow-hidden rounded-3xl border border-white/10 bg-white/5 flex items-center justify-center text-white text-xl font-bold">
+            <div className="h-14 w-14 overflow-hidden rounded-full border border-[#3f3f46] bg-[#202023] flex items-center justify-center text-[#f4f4f5] text-lg font-bold shadow-sm">
               {avatarPreview ? (
-                 
                 <img src={avatarPreview} alt={fullName || user.full_name} className="h-full w-full object-cover" />
               ) : (
                 (fullName || user.full_name).charAt(0)
               )}
             </div>
             <div>
-              <h1 className="text-3xl font-semibold text-white/90">Account</h1>
-              <p className="text-sm text-white/40 mt-1">Manage your profile, workspace roles, and import access.</p>
+              <h1 className="text-2xl font-bold tracking-tight text-[#f4f4f5]">Account</h1>
+              <p className="text-xs text-[#a1a1aa] mt-0.5">Manage your profile, workspace roles, and import access.</p>
             </div>
           </div>
 
-          <Button variant="outline" onClick={() => void signOut({ callbackUrl: "/login" })}>
-            <LogOut className="w-4 h-4" />
+          <button
+            onClick={() => void signOut({ callbackUrl: "/login" })}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-[#3f3f46] bg-[#202023] px-3 text-xs font-semibold text-[#f4f4f5] transition-colors hover:bg-[#27272a]"
+          >
+            <LogOut className="w-3.5 h-3.5 text-[#a1a1aa]" />
             Sign out
-          </Button>
+          </button>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-2xl border border-white/5 bg-[#262729] p-6 space-y-5">
-            <div className="flex items-center gap-2 text-white/80">
-              <UserCircle2 className="w-4 h-4 text-blue-400" />
-              <h2 className="text-lg font-semibold">Profile details</h2>
+          <section className="rounded-xl border border-[#3f3f46] bg-[#202023] p-5 space-y-4">
+            <div className="flex items-center gap-2 text-[#f4f4f5]">
+              <UserCircle2 className="w-4 h-4 text-[#0075de]" />
+              <h2 className="text-base font-semibold">Profile details</h2>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm text-white/60">Full name</label>
-                <Input value={fullName} maxLength={100} onChange={(event) => setFullName(event.target.value)} className="bg-[#1f2022] border-white/10 text-white/85" />
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#a1a1aa]">Full name</label>
+                <Input value={fullName} maxLength={100} onChange={(event) => setFullName(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" />
               </div>
-              <div className="space-y-2">
-                <label className="text-sm text-white/60">Email</label>
-                <Input value={user.email} readOnly className="bg-[#1f2022] border-white/10 text-white/60" />
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#a1a1aa]">Email</label>
+                <Input value={user.email} readOnly className="bg-[#18181b] border-[#3f3f46] text-xs text-[#71717a]" />
               </div>
-              <div className="space-y-3 md:col-span-2">
-                <label htmlFor="avatar-upload" className="text-sm text-white/60">Profile image</label>
-                <div className="flex items-center gap-4 rounded-xl border border-white/5 bg-[#1f2022] p-4">
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center text-lg font-bold text-white">
+              <div className="space-y-2 md:col-span-2">
+                <label htmlFor="avatar-upload" className="text-xs font-semibold text-[#a1a1aa]">Profile image</label>
+                <div className="flex items-center gap-4 rounded-lg border border-[#3f3f46] bg-[#18181b] p-3">
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-[#3f3f46] bg-[#202023] flex items-center justify-center text-sm font-bold text-[#f4f4f5]">
                     {avatarPreview ? (
-                       
                       <img src={avatarPreview} alt="Avatar preview" className="h-full w-full object-cover" />
                     ) : (
                       (fullName || user.full_name).charAt(0)
                     )}
                   </div>
-                  <div className="min-w-0 flex-1 space-y-2">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Input
                       id="avatar-upload"
                       type="file"
@@ -186,33 +187,33 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
                         if (file) void uploadAvatar(file)
                         event.target.value = ""
                       }}
-                      className="bg-[#262729] border-white/10 text-white/70 file:mr-3 file:border-0 file:bg-transparent file:text-white/80"
+                      className="bg-[#202023] border-[#3f3f46] text-xs text-[#a1a1aa] file:mr-3 file:border-0 file:bg-transparent file:text-xs file:font-semibold file:text-[#0075de]"
                     />
-                    <p className="text-xs text-white/35">JPEG, PNG, WebP, or GIF. Maximum 2MB.</p>
+                    <p className="text-[10px] text-[#71717a]">JPEG, PNG, WebP, or GIF. Maximum 2MB.</p>
                   </div>
                 </div>
-                {avatarMessage ? <p className="text-sm text-white/60" aria-live="polite">{avatarMessage}</p> : null}
+                {avatarMessage ? <p className="text-xs text-[#a1a1aa]" aria-live="polite">{avatarMessage}</p> : null}
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm text-white/60">Or use an image URL</label>
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="text-xs font-semibold text-[#a1a1aa]">Or use an image URL</label>
                 <Input
                   value={avatarUrl}
                   onChange={(event) => {
                     setAvatarUrl(event.target.value)
                     setAvatarPreview(event.target.value.trim())
                   }}
-                  className="bg-[#1f2022] border-white/10 text-white/85"
+                  className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]"
                   placeholder="https://..."
                 />
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm text-white/60">Timezone</label>
-                <Input value={timezone} onChange={(event) => setTimezone(event.target.value)} className="bg-[#1f2022] border-white/10 text-white/85" placeholder="Africa/Cairo" />
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="text-xs font-semibold text-[#a1a1aa]">Timezone</label>
+                <Input value={timezone} onChange={(event) => setTimezone(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" placeholder="Africa/Cairo" />
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <Button
+              <button
                 onClick={() => {
                   setProfileMessage("")
                   startProfileTransition(async () => {
@@ -225,63 +226,64 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
                   })
                 }}
                 disabled={profilePending || avatarPending}
+                className="inline-flex h-9 items-center gap-2 rounded-full bg-[#0075de] px-4 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#005bab] disabled:opacity-50"
               >
-                <Upload className="w-4 h-4" />
+                <Upload className="w-3.5 h-3.5" />
                 {profilePending ? "Saving..." : "Save profile"}
-              </Button>
-              {profileMessage ? <p className="text-sm text-white/60" aria-live="polite">{profileMessage}</p> : null}
+              </button>
+              {profileMessage ? <p className="text-xs text-[#a1a1aa]" aria-live="polite">{profileMessage}</p> : null}
             </div>
           </section>
 
-          <section className="rounded-2xl border border-white/5 bg-[#262729] p-6 space-y-5">
-            <div className="flex items-center gap-2 text-white/80">
+          <section className="rounded-xl border border-[#3f3f46] bg-[#202023] p-5 space-y-4">
+            <div className="flex items-center gap-2 text-[#f4f4f5]">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <h2 className="text-lg font-semibold">Access and status</h2>
+              <h2 className="text-base font-semibold">Access and status</h2>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-white/5 bg-[#1f2022] p-4">
-                <div className="text-xs text-white/40">Assigned tasks</div>
-                <div className="text-2xl font-semibold text-white/90 mt-2">{user._count.tasks_assigned}</div>
+              <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717a]">Assigned tasks</div>
+                <div className="text-xl font-bold text-[#f4f4f5] mt-1">{user._count.tasks_assigned}</div>
               </div>
-              <div className="rounded-xl border border-white/5 bg-[#1f2022] p-4">
-                <div className="text-xs text-white/40">Created tasks</div>
-                <div className="text-2xl font-semibold text-white/90 mt-2">{user._count.tasks_created}</div>
+              <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717a]">Created tasks</div>
+                <div className="text-xl font-bold text-[#f4f4f5] mt-1">{user._count.tasks_created}</div>
               </div>
-              <div className="rounded-xl border border-white/5 bg-[#1f2022] p-4">
-                <div className="text-xs text-white/40">Comments</div>
-                <div className="text-2xl font-semibold text-white/90 mt-2">{user._count.comments}</div>
+              <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717a]">Comments</div>
+                <div className="text-xl font-bold text-[#f4f4f5] mt-1">{user._count.comments}</div>
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/5 bg-[#1f2022] p-4 space-y-3">
-              <div className="flex items-center gap-2 text-sm text-white/70">
-                <Mail className="w-4 h-4 text-blue-400" />
+            <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] p-3.5 space-y-2.5">
+              <div className="flex items-center gap-2 text-xs text-[#a1a1aa]">
+                <Mail className="w-3.5 h-3.5 text-[#0075de]" />
                 Member since {format(new Date(user.created_at), "MMM d, yyyy")}
               </div>
-              <div className="flex items-center gap-2 text-sm text-white/70">
-                <Briefcase className="w-4 h-4 text-amber-400" />
+              <div className="flex items-center gap-2 text-xs text-[#a1a1aa]">
+                <Briefcase className="w-3.5 h-3.5 text-amber-400" />
                 Primary workspace: {primaryMembership?.workspace.name || "No workspace"}
               </div>
-              <div className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${canImport ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-white/5 text-white/60"}`}>
+              <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${canImport ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-[#3f3f46] bg-[#202023] text-[#a1a1aa]"}`}>
                 {canImport ? "Import access enabled" : "Import access not available on this account"}
               </div>
               {user.is_super_admin ? (
-                <Link href="/admin/members" className="inline-flex items-center rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 text-xs font-semibold text-violet-200 hover:bg-violet-500/15 transition-colors">
+                <Link href="/admin/members" className="inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-violet-300 hover:bg-violet-500/20 transition-colors">
                   Open super admin console
                 </Link>
               ) : null}
             </div>
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-white/80">Workspace roles</h3>
+            <div className="space-y-2.5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#a1a1aa]">Workspace roles</h3>
               {user.workspaces.map((membership) => (
-                <div key={`${membership.workspace.id}-${membership.role}`} className="flex items-center justify-between gap-4 rounded-xl border border-white/5 bg-[#1f2022] p-4">
+                <div key={`${membership.workspace.id}-${membership.role}`} className="flex items-center justify-between gap-4 rounded-lg border border-[#3f3f46] bg-[#18181b] p-3">
                   <div>
-                    <div className="text-sm font-medium text-white/85">{membership.workspace.name}</div>
-                    <div className="text-xs text-white/35 mt-1">Joined {format(new Date(membership.joined_at), "MMM d, yyyy")}</div>
+                    <div className="text-xs font-semibold text-[#f4f4f5]">{membership.workspace.name}</div>
+                    <div className="text-[10px] text-[#71717a] mt-0.5">Joined {format(new Date(membership.joined_at), "MMM d, yyyy")}</div>
                   </div>
-                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${roleClasses(membership.role)}`}>
+                  <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold capitalize ${roleClasses(membership.role)}`}>
                     {membership.role}
                   </span>
                 </div>
@@ -289,28 +291,27 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
             </div>
 
             {!user.is_super_admin ? (
-              <div className="rounded-xl border border-white/5 bg-[#1f2022] p-4 space-y-3">
+              <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] p-3.5 space-y-2.5">
                 <div>
-                  <h3 className="text-sm font-semibold text-white/80">Request elevated access</h3>
-                    <p className="text-xs text-white/40 mt-1">Request super admin access only if you need global administration or protected import access.</p>
+                  <h3 className="text-xs font-semibold text-[#f4f4f5]">Request elevated access</h3>
+                  <p className="text-[11px] text-[#a1a1aa] mt-0.5">Request super admin access only if you need global administration or protected import access.</p>
                 </div>
 
                 {latestRequest ? (
-                  <div className="rounded-lg border border-white/5 bg-[#262729] p-3 text-sm text-white/65 space-y-1">
+                  <div className="rounded-md border border-[#3f3f46] bg-[#202023] p-2.5 text-xs text-[#a1a1aa] space-y-1">
                     <div>
-                      Latest request: <span className="font-medium text-white/80">{latestRequest.status}</span>
+                      Latest request: <span className="font-semibold text-[#f4f4f5]">{latestRequest.status}</span>
                     </div>
-                    <div className="text-xs text-white/40">
+                    <div className="text-[10px] text-[#71717a]">
                       {latestRequest.workspace ? `${latestRequest.workspace.name} - ` : ""}
                       {format(new Date(latestRequest.created_at), "MMM d, yyyy h:mm a")}
                     </div>
-                    {latestRequest.review_note ? <div className="text-xs text-white/45">Review note: {latestRequest.review_note}</div> : null}
+                    {latestRequest.review_note ? <div className="text-[10px] text-[#a1a1aa]">Review note: {latestRequest.review_note}</div> : null}
                   </div>
                 ) : null}
 
                 <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
+                  <button
                     disabled={accessPending || latestRequest?.status === "pending"}
                     onClick={() => {
                       setAccessMessage("")
@@ -320,36 +321,36 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
                         if (result.success) router.refresh()
                       })
                     }}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#3f3f46] bg-[#202023] px-3 text-xs font-semibold text-[#f4f4f5] transition-colors hover:bg-[#27272a] disabled:opacity-50"
                   >
                     {accessPending ? "Submitting..." : latestRequest?.status === "pending" ? "Request pending" : "Request super admin access"}
-                  </Button>
-                  {accessMessage ? <p className="text-sm text-white/60">{accessMessage}</p> : null}
+                  </button>
+                  {accessMessage ? <p className="text-xs text-[#a1a1aa]">{accessMessage}</p> : null}
                 </div>
               </div>
             ) : null}
           </section>
         </div>
 
-        <section className="rounded-2xl border border-white/5 bg-[#262729] p-6 space-y-5">
-          <div className="flex items-center gap-2 text-white/80">
+        <section className="rounded-xl border border-[#3f3f46] bg-[#202023] p-5 space-y-4">
+          <div className="flex items-center gap-2 text-[#f4f4f5]">
             <KeyRound className="w-4 h-4 text-violet-400" />
-            <h2 className="text-lg font-semibold">Security</h2>
+            <h2 className="text-base font-semibold">Security</h2>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm text-white/60">Current password</label>
-              <Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="bg-[#1f2022] border-white/10 text-white/85" />
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-[#a1a1aa]">Current password</label>
+              <Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm text-white/60">New password</label>
-              <Input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="bg-[#1f2022] border-white/10 text-white/85" />
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-[#a1a1aa]">New password</label>
+              <Input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" />
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
+            <button
               onClick={() => {
                 setPasswordMessage("")
                 startPasswordTransition(async () => {
@@ -363,11 +364,12 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
                 })
               }}
               disabled={passwordPending || !currentPassword || !newPassword}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-xs font-semibold text-[#f4f4f5] transition-colors hover:bg-[#27272a] disabled:opacity-50"
             >
-              <KeyRound className="w-4 h-4" />
+              <KeyRound className="w-3.5 h-3.5 text-[#a1a1aa]" />
               {passwordPending ? "Updating..." : "Update password"}
-            </Button>
-            {passwordMessage ? <p className="text-sm text-white/60">{passwordMessage}</p> : null}
+            </button>
+            {passwordMessage ? <p className="text-xs text-[#a1a1aa]">{passwordMessage}</p> : null}
           </div>
         </section>
       </div>

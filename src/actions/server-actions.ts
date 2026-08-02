@@ -2098,3 +2098,37 @@ export async function getAccessibleWorkspaceSummary() {
     orderBy: { created_at: "asc" },
   })
 }
+
+export async function getWorkspaceMembers() {
+  try {
+    const userId = await getSessionUserId()
+    if (!userId) return { success: false as const, users: [] }
+
+    const workspace = await getActiveWorkspaceForUser(userId)
+    if (!workspace) return { success: false as const, users: [] }
+
+    const members = await prisma.workspaceMember.findMany({
+      where: {
+        workspace_id: workspace.id,
+        role: { not: "guest" },
+      },
+      select: {
+        user: {
+          select: {
+            id: true,
+            full_name: true,
+            email: true,
+            avatar_url: true,
+          },
+        },
+      },
+    })
+
+    return {
+      success: true as const,
+      users: members.map((m) => m.user).sort((a, b) => a.full_name.localeCompare(b.full_name)),
+    }
+  } catch {
+    return { success: false as const, users: [] }
+  }
+}

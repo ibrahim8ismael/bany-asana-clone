@@ -88,72 +88,72 @@ export default async function HomePage() {
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
 
   return (
-    <div className="h-full min-h-0 overflow-auto custom-scrollbar">
-      <div className="max-w-5xl mx-auto py-8 px-6">
+    <div className="h-full min-h-0 overflow-auto custom-scrollbar bg-[#18181b]">
+      <div className="max-w-5xl mx-auto py-8 px-6 space-y-8">
         {/* Hero Greeting */}
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#f4f4f5]">
             {greeting}, {userName} 👋
           </h1>
-          <p className="text-gray-500 mt-2">Here&apos;s what&apos;s happening across your workspace.</p>
+          <p className="text-xs text-[#a1a1aa] mt-1">Here&apos;s what&apos;s happening across your workspace.</p>
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
-          <div className="bg-white dark:bg-zinc-950 border dark:border-zinc-800 rounded-xl p-5 flex items-center gap-4">
-            <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-              <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-[#202023] border border-[#3f3f46] rounded-xl p-4 flex items-center gap-3.5">
+            <div className="p-2 bg-[#0075de]/15 border border-[#0075de]/30 rounded-lg">
+              <Clock className="w-4 h-4 text-[#60a5fa]" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{upcomingTasks}</p>
-              <p className="text-xs text-gray-500">Tasks upcoming</p>
+              <p className="text-xl font-bold text-[#f4f4f5]">{upcomingTasks}</p>
+              <p className="text-xs text-[#a1a1aa]">Tasks upcoming</p>
             </div>
           </div>
-          <div className="bg-white dark:bg-zinc-950 border dark:border-zinc-800 rounded-xl p-5 flex items-center gap-4">
-            <div className="p-2.5 bg-red-50 dark:bg-red-900/20 rounded-lg">
-              <Flag className="w-5 h-5 text-red-500" />
+          <div className="bg-[#202023] border border-[#3f3f46] rounded-xl p-4 flex items-center gap-3.5">
+            <div className="p-2 bg-rose-500/15 border border-rose-500/30 rounded-lg">
+              <Flag className="w-4 h-4 text-rose-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{overdueTasks}</p>
-              <p className="text-xs text-gray-500">Tasks overdue</p>
+              <p className="text-xl font-bold text-[#f4f4f5]">{overdueTasks}</p>
+              <p className="text-xs text-[#a1a1aa]">Tasks overdue</p>
             </div>
           </div>
-          <div className="bg-white dark:bg-zinc-950 border dark:border-zinc-800 rounded-xl p-5 flex items-center gap-4">
-            <div className="p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg">
-              <Zap className="w-5 h-5 text-green-600 dark:text-green-400" />
+          <div className="bg-[#202023] border border-[#3f3f46] rounded-xl p-4 flex items-center gap-3.5">
+            <div className="p-2 bg-emerald-500/15 border border-emerald-500/30 rounded-lg">
+              <Zap className="w-4 h-4 text-emerald-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{completedToday}</p>
-              <p className="text-xs text-gray-500">Completed today</p>
+              <p className="text-xl font-bold text-[#f4f4f5]">{completedToday}</p>
+              <p className="text-xs text-[#a1a1aa]">Completed today</p>
             </div>
           </div>
         </div>
 
         {/* My Upcoming Tasks */}
-        <div className="mb-10">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">My Upcoming Tasks</h2>
-            <Link href="/my-tasks" className="flex min-h-11 items-center text-sm font-medium text-blue-600 hover:text-blue-700">View all →</Link>
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[#a1a1aa]">My Upcoming Tasks</h2>
+            <Link href="/my-tasks" className="text-xs font-semibold text-[#0075de] hover:underline">View all →</Link>
           </div>
-          <div className="bg-white dark:bg-zinc-950 border dark:border-zinc-800 rounded-xl divide-y dark:divide-zinc-800 overflow-hidden">
+          <div className="bg-[#202023] border border-[#3f3f46] rounded-xl divide-y divide-[#3f3f46] overflow-hidden">
             {myTasks.length === 0 ? (
-              <div className="py-10 text-center text-gray-400 text-sm">
-                <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-400" />
+              <div className="py-8 text-center text-[#71717a] text-xs">
+                <CheckCircle className="w-6 h-6 mx-auto mb-2 text-emerald-400" />
                 You&apos;re all caught up!
               </div>
             ) : (
               myTasks.map((task) => (
-                <div key={task.id} className="flex items-center gap-3 py-3 px-4 hover:bg-gray-50 dark:hover:bg-zinc-900 transition-colors">
-                  <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-                  <span className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{task.title}</span>
+                <div key={task.id} className="flex items-center gap-3 py-3 px-4 hover:bg-[#27272a] transition-colors">
+                  <div className="w-2 h-2 rounded-full bg-[#0075de] shrink-0" />
+                  <span className="flex-1 text-xs font-medium text-[#f4f4f5] truncate">{task.title}</span>
                   {task.due_date && (
-                    <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+                    <span className="flex items-center gap-1 text-[11px] text-[#a1a1aa] shrink-0">
                       <Calendar className="w-3 h-3" />
                       {format(new Date(task.due_date), "MMM d")}
                     </span>
                   )}
                   {(task.project || task.client) && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-zinc-800 text-gray-500 shrink-0 truncate max-w-[120px]">
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#18181b] border border-[#3f3f46] text-[#a1a1aa] shrink-0 truncate max-w-[120px]">
                       {task.project?.name || task.client?.name}
                     </span>
                   )}
@@ -165,8 +165,8 @@ export default async function HomePage() {
 
         {/* Projects */}
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Projects</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[#a1a1aa]">Projects</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {projects.map((project) => {
@@ -175,21 +175,22 @@ export default async function HomePage() {
                 <Link
                   key={project.id}
                   href={`/projects/${project.id}/${project.default_view}`}
-                  className="bg-white dark:bg-zinc-950 border dark:border-zinc-800 rounded-xl p-5 hover:shadow-md transition-all hover:border-gray-300 dark:hover:border-zinc-700 group"
+                  className="bg-[#202023] border border-[#3f3f46] rounded-xl p-4 transition-all hover:border-[#0075de]/50 hover:shadow-md group"
                 >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold"
-                         style={{ backgroundColor: project.color || "#6366f1" }}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-sm"
+                         style={{ backgroundColor: project.color || "#0075de" }}>
                       {project.icon === "palette" ? "🎨" : "📦"}
                     </div>
-                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 transition-colors truncate">{project.name}</h3>
+                    <h3 className="text-xs font-semibold text-[#f4f4f5] group-hover:text-[#60a5fa] transition-colors truncate">{project.name}</h3>
                   </div>
-                  <p className="text-xs text-gray-500 line-clamp-2 mb-3">{project.description || "No description"}</p>
-                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                  <p className="text-[11px] text-[#a1a1aa] line-clamp-2 mb-3 leading-relaxed">{project.description || "No description"}</p>
+                  <div className="flex items-center gap-3 text-[10px] text-[#71717a] font-medium">
                     <span className="flex items-center gap-1">
-                      <FolderOpen className="w-3 h-3" />
+                      <FolderOpen className="w-3 h-3 text-[#0075de]" />
                       {taskCount} tasks
                     </span>
+                    <span>•</span>
                     <span>{project.sections.length} sections</span>
                   </div>
                 </Link>

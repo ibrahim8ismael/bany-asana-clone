@@ -35,12 +35,21 @@ import {
 } from "lucide-react"
 
 const priorityOptions = ["high", "medium", "low"] as const
-const statusOptions = ["incomplete", "in_progress", "complete"] as const
+const statusOptions = ["backlog", "incomplete", "in_progress", "submitted_for_review", "needs_rework", "complete"] as const
+
+const statusLabels: Record<string, string> = {
+  backlog: "Backlog",
+  incomplete: "To Do",
+  in_progress: "In Progress",
+  submitted_for_review: "In Review",
+  needs_rework: "Needs Rework",
+  complete: "Done",
+}
 
 const priorityStyles: Record<string, string> = {
-  high: "bg-red-100 text-red-700 border-red-200",
-  medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
-  low: "bg-blue-100 text-blue-700 border-blue-200",
+  high: "bg-red-500/20 text-red-300 border-red-500/30",
+  medium: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  low: "bg-blue-500/20 text-blue-300 border-blue-500/30",
 }
 
 interface DrawerUser {
@@ -365,33 +374,31 @@ export default function TaskDrawer({
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full overflow-hidden border-l border-gray-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-950 sm:max-w-2xl">
+      <SheetContent className="w-full overflow-hidden border-l border-[#3f3f46] bg-[#202023] p-0 text-[#f4f4f5] sm:max-w-2xl">
         <div className="flex h-full flex-col">
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b px-5 py-3 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-            <Button
-              variant="outline"
-              size="sm"
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#3f3f46] bg-[#202023] px-5 py-3">
+            <button
               disabled={isCompleting || displayTask.quality_required}
               onClick={handleMarkComplete}
-              className={`gap-2 rounded-md border text-sm font-medium shadow-sm transition-all ${
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all ${
                 isComplete
-                  ? "border-green-200 bg-green-50 text-green-600 hover:bg-green-100"
-                  : "text-gray-600 hover:border-green-300 hover:bg-green-50 hover:text-green-600"
+                  ? "border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                  : "border border-[#3f3f46] bg-[#18181b] text-[#f4f4f5] hover:border-emerald-500/50 hover:text-emerald-400"
               }`}
             >
-              <CheckCircle2 className={`h-4 w-4 ${isComplete ? "fill-green-500 text-green-500" : ""}`} />
+              <CheckCircle2 className={`h-4 w-4 ${isComplete ? "fill-emerald-400 text-emerald-950" : ""}`} />
               {displayTask.quality_required ? qualityActionLabel : isComplete ? "Completed" : "Mark Complete"}
-            </Button>
+            </button>
             <button
               onClick={onClose}
-              className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800"
+              className="rounded-md p-1.5 text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
               aria-label="Close"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="flex-1 space-y-6 overflow-y-auto p-4 custom-scrollbar sm:p-6">
+          <div className="flex-1 space-y-6 overflow-y-auto p-4 custom-scrollbar sm:p-6 bg-[#202023]">
             <div className="space-y-2 pt-1">
               <input
                 value={titleDraft}
@@ -410,14 +417,14 @@ export default function TaskDrawer({
                   }
                 }}
                 placeholder="Task title"
-                className={`w-full rounded-lg border border-transparent bg-transparent px-2 py-1 text-2xl font-semibold leading-snug text-gray-900 outline-none transition-colors placeholder:text-gray-300 hover:border-gray-200 focus:border-blue-400 focus:bg-blue-50/30 dark:text-gray-100 dark:hover:border-zinc-700 dark:focus:border-blue-500 ${
-                  isComplete ? "line-through text-gray-400 dark:text-zinc-500" : ""
+                className={`w-full rounded-lg border border-transparent bg-transparent px-2 py-1 text-xl font-bold leading-snug text-[#f4f4f5] outline-none transition-colors placeholder:text-[#a1a1aa] hover:border-[#3f3f46] focus:border-[#0075de] focus:bg-[#18181b] ${
+                  isComplete ? "line-through text-[#71717a]" : ""
                 }`}
               />
               <div className="flex min-h-5 items-center gap-2 px-2 text-xs">
-                {savingField === "title" && <span className="text-gray-400">Saving title...</span>}
-                {isEditingTitle && savingField !== "title" && <span className="text-gray-400">Press Enter to save</span>}
-                {saveError && <span className="text-red-500">{saveError}</span>}
+                {savingField === "title" && <span className="text-[#a1a1aa]">Saving title...</span>}
+                {isEditingTitle && savingField !== "title" && <span className="text-[#a1a1aa]">Press Enter to save</span>}
+                {saveError && <span className="text-rose-400 font-semibold">{saveError}</span>}
               </div>
             </div>
 

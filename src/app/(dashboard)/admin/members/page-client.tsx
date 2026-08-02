@@ -95,54 +95,54 @@ export default function AdminMembersClient({
   }
 
   return (
-    <div className="h-full min-h-0 overflow-auto custom-scrollbar bg-[#1e1f21]">
-      <div className="max-w-6xl mx-auto px-8 py-10 space-y-8">
+    <div className="h-full min-h-0 overflow-auto custom-scrollbar bg-[#18181b]">
+      <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-            <ShieldCheck className="w-7 h-7 text-emerald-400" />
+          <div className="w-12 h-12 rounded-xl bg-[#202023] border border-[#3f3f46] flex items-center justify-center">
+            <ShieldCheck className="w-6 h-6 text-emerald-400" />
           </div>
           <div>
-            <h1 className="text-3xl font-semibold text-white/90">{isSuperAdmin ? "Super Admin Console" : "Workspace Members"}</h1>
-            <p className="text-sm text-white/40 mt-1">{isSuperAdmin ? "Manage workspace members and approve elevated access requests." : "Manage members and roles in your workspaces."}</p>
+            <h1 className="text-2xl font-bold tracking-tight text-[#f4f4f5]">{isSuperAdmin ? "Super Admin Console" : "Workspace Members"}</h1>
+            <p className="text-xs text-[#a1a1aa] mt-0.5">{isSuperAdmin ? "Manage workspace members and approve elevated access requests." : "Manage members and roles in your workspaces."}</p>
           </div>
         </div>
 
-        {message ? <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/75">{message}</div> : null}
+        {message ? <div className="rounded-lg border border-[#3f3f46] bg-[#202023] px-4 py-2.5 text-xs text-[#f4f4f5]">{message}</div> : null}
 
-        {isSuperAdmin ? <section className="rounded-2xl border border-white/5 bg-[#262729] p-6 space-y-5">
-          <div className="flex items-center gap-2 text-white/85">
+        {isSuperAdmin ? <section className="rounded-xl border border-[#3f3f46] bg-[#202023] p-5 space-y-4">
+          <div className="flex items-center gap-2 text-[#f4f4f5]">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-lg font-semibold">Pending access requests</h2>
+            <h2 className="text-base font-semibold">Pending access requests</h2>
           </div>
 
           {pendingRequests.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 p-6 text-sm text-white/35">No pending requests.</div>
+            <div className="rounded-lg border border-dashed border-[#3f3f46] p-6 text-xs text-[#71717a]">No pending requests.</div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {pendingRequests.map((request) => (
-                <div key={request.id} className="rounded-xl border border-white/5 bg-[#1f2022] p-4 space-y-3">
+                <div key={request.id} className="rounded-lg border border-[#3f3f46] bg-[#18181b] p-4 space-y-3">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <div className="text-white/85 font-medium">{request.user.full_name}</div>
-                      <div className="text-sm text-white/45">{request.user.email}</div>
-                      <div className="text-xs text-white/35 mt-1">
+                      <div className="text-xs font-semibold text-[#f4f4f5]">{request.user.full_name}</div>
+                      <div className="text-xs text-[#a1a1aa]">{request.user.email}</div>
+                      <div className="text-[10px] text-[#71717a] mt-0.5">
                         Requested {request.requested_role.replace(/_/g, " ")} {request.workspace ? `for ${request.workspace.name}` : ""} on {format(new Date(request.created_at), "MMM d, yyyy h:mm a")}
                       </div>
                     </div>
-                    <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">pending</span>
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">pending</span>
                   </div>
 
-                  {request.note ? <p className="text-sm text-white/60">{request.note}</p> : null}
+                  {request.note ? <p className="text-xs text-[#a1a1aa]">{request.note}</p> : null}
 
                   <Input
                     value={reviewNote[request.id] || ""}
                     onChange={(event) => setReviewNote((current) => ({ ...current, [request.id]: event.target.value }))}
                     placeholder="Optional review note"
-                    className="bg-[#262729] border-white/10 text-white/80"
+                    className="bg-[#202023] border-[#3f3f46] text-xs text-[#f4f4f5]"
                   />
 
-                  <div className="flex items-center gap-3">
-                    <Button
+                  <div className="flex items-center gap-2">
+                    <button
                       disabled={pending}
                       onClick={() =>
                         runAction(() =>
@@ -153,11 +153,11 @@ export default function AdminMembersClient({
                           })
                         )
                       }
+                      className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
                     >
                       Approve
-                    </Button>
-                    <Button
-                      variant="outline"
+                    </button>
+                    <button
                       disabled={pending}
                       onClick={() =>
                         runAction(() =>
@@ -168,10 +168,11 @@ export default function AdminMembersClient({
                           })
                         )
                       }
+                      className="inline-flex items-center gap-1 rounded-md border border-[#3f3f46] bg-[#202023] px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
                     >
-                      <XCircle className="w-4 h-4" />
+                      <XCircle className="w-3.5 h-3.5" />
                       Reject
-                    </Button>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -179,52 +180,50 @@ export default function AdminMembersClient({
           )}
         </section> : null}
 
-        <section className="rounded-2xl border border-white/5 bg-[#262729] p-6 space-y-5">
-          <div className="flex items-center gap-2 text-white/85">
-            <Users className="w-4 h-4 text-blue-400" />
-            <h2 className="text-lg font-semibold">Workspace members</h2>
+        <section className="rounded-xl border border-[#3f3f46] bg-[#202023] p-5 space-y-4">
+          <div className="flex items-center gap-2 text-[#f4f4f5]">
+            <Users className="w-4 h-4 text-[#0075de]" />
+            <h2 className="text-base font-semibold">Workspace members</h2>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-4">
             {workspaces.map((workspace) => (
-              <div key={workspace.id} className="rounded-xl border border-white/5 bg-[#1f2022] p-4 space-y-4">
+              <div key={workspace.id} className="rounded-lg border border-[#3f3f46] bg-[#18181b] p-4 space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-base font-semibold text-white/85">{workspace.name}</h3>
-                    <p className="text-xs text-white/35 mt-1">{workspace.members.length} members</p>
+                    <h3 className="text-sm font-semibold text-[#f4f4f5]">{workspace.name}</h3>
+                    <p className="text-[11px] text-[#71717a] mt-0.5">{workspace.members.length} members</p>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="h-8 bg-white/5 border-white/10 hover:bg-white/10"
+                  <button 
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#0075de] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#005bab]"
                     onClick={() => {
                       setSelectedWorkspaceId(workspace.id)
                       setIsAddModalOpen(true)
                     }}
                   >
-                    <Plus className="w-4 h-4 mr-2" />
+                    <Plus className="w-3.5 h-3.5" />
                     Add Member
-                  </Button>
+                  </button>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {workspace.members.map((membership) => (
-                    <div key={membership.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/5 bg-[#262729] p-4">
+                    <div key={membership.id} className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#3f3f46] bg-[#202023] p-3">
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-medium text-white/85">{membership.user.full_name}</span>
+                          <span className="text-xs font-semibold text-[#f4f4f5]">{membership.user.full_name}</span>
                           {membership.user.is_super_admin ? (
-                            <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200">
+                            <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-300">
                               super admin
                             </span>
                           ) : null}
                         </div>
-                        <div className="text-xs text-white/40 mt-1">{membership.user.email}</div>
-                        <div className="text-xs text-white/30 mt-1">Joined {format(new Date(membership.joined_at), "MMM d, yyyy")}</div>
+                        <div className="text-[11px] text-[#a1a1aa] mt-0.5">{membership.user.email}</div>
+                        <div className="text-[10px] text-[#71717a] mt-0.5">Joined {format(new Date(membership.joined_at), "MMM d, yyyy")}</div>
                       </div>
 
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${roleClasses(membership.role)}`}>
+                        <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold capitalize ${roleClasses(membership.role)}`}>
                           {membership.role}
                         </span>
                         {membership.role !== "owner" ? (
@@ -240,7 +239,7 @@ export default function AdminMembersClient({
                                 })
                               )
                             }
-                            className="rounded-lg border border-white/10 bg-[#1f2022] px-3 py-2 text-xs text-white/80 outline-none"
+                            className="rounded-md border border-[#3f3f46] bg-[#18181b] px-2.5 py-1 text-xs text-[#f4f4f5] outline-none focus:border-[#0075de]"
                           >
                             <option value="admin">Admin</option>
                             <option value="member">Member</option>
@@ -248,13 +247,13 @@ export default function AdminMembersClient({
                           </select>
                         ) : null}
                         {membership.role !== "owner" ? (
-                          <Button
-                            variant="outline"
+                          <button
                             disabled={pending}
                             onClick={() => runAction(() => removeWorkspaceMember({ workspaceId: workspace.id, userId: membership.user.id }))}
+                            className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
                           >
                             Remove
-                          </Button>
+                          </button>
                         ) : null}
                       </div>
                     </div>

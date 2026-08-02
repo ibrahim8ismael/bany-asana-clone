@@ -168,31 +168,31 @@ export default function BoardClient({ project }: { project: any }) {
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="mb-4 flex shrink-0 items-center justify-between gap-4 border-b border-[#414245] pb-4">
+      <div className="flex h-full min-h-0 flex-col bg-[#18181b] p-4 sm:p-6">
+        <div className="mb-4 flex shrink-0 items-center justify-between gap-4 border-b border-[#3f3f46] pb-3">
           <button
             onClick={() => data.sections[0] && setAddingToSection(data.sections[0].id)}
             disabled={data.sections.length === 0}
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-[#56575a] bg-[#292a2c] px-3 text-sm font-semibold text-white/90 transition-colors hover:bg-[#343537] disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-9 items-center gap-2 rounded-full bg-[#0075de] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#005bab] disabled:cursor-not-allowed disabled:opacity-40 shadow-sm"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             Add task
           </button>
-          <span className="hidden text-xs text-white/35 sm:block">Drag tasks between sections to update progress</span>
+          <span className="hidden text-xs text-[#a1a1aa] sm:block font-medium">Drag tasks between sections to update progress</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto custom-scrollbar">
         <div className="flex min-w-max items-start gap-4 pb-5">
           {data.sections.map((section: any) => (
             <div key={section.id} className="group/section flex min-h-[420px] w-[calc(100vw-3rem)] shrink-0 flex-col sm:w-[320px]">
             {/* Section Header */}
-            <div className="mb-3 flex min-h-14 items-center justify-between rounded-lg bg-[#28292b] px-4">
+            <div className="mb-2 flex min-h-11 items-center justify-between rounded-lg border border-[#3f3f46] bg-[#202023] px-3 py-2">
               <div className="flex items-center gap-2 min-w-0">
-                <h3 className="truncate text-[15px] font-semibold text-white/90">{section.name}</h3>
-                <span className="text-sm text-white/40">{section.tasks.length}</span>
+                <h3 className="truncate text-xs font-bold uppercase tracking-wider text-[#f4f4f5]">{section.name}</h3>
+                <span className="rounded-full bg-[#27272a] px-2 py-0.5 text-[10px] font-bold text-[#a1a1aa]">{section.tasks.length}</span>
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover/section:opacity-100 transition-opacity">
                 <button
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-white/40 hover:bg-white/5 hover:text-white/80"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
                   aria-label="Add task to section"
                   onClick={() => setAddingToSection(section.id)}
                 >
@@ -206,7 +206,7 @@ export default function BoardClient({ project }: { project: any }) {
                 <div 
                   ref={provided.innerRef} 
                   {...provided.droppableProps}
-                   className={`min-h-[120px] flex-1 space-y-2 rounded-lg border border-transparent bg-[#242527] p-3 transition-colors ${snapshot.isDraggingOver ? "border-[#6f7074] bg-[#292a2c]" : ""}`}
+                   className={`min-h-[120px] flex-1 space-y-2.5 rounded-xl border border-[#3f3f46] bg-[#18181b]/50 p-2.5 transition-colors ${snapshot.isDraggingOver ? "border-[#0075de]/50 bg-[#202023]" : ""}`}
                 >
                   {section.tasks.map((task: any, index: number) => (
                     <Draggable key={task.id} draggableId={task.id} index={index}>
@@ -222,27 +222,27 @@ export default function BoardClient({ project }: { project: any }) {
                               if (e.defaultPrevented) return
                               setSelectedTask(task)
                             }}
-                            className={`group/card relative cursor-pointer space-y-3 overflow-hidden border-[#47484b] bg-[#2d2e30] p-4 shadow-none transition-all hover:border-[#65666a] ${
-                              task.status === "complete" ? "opacity-80" : ""
+                            className={`group/card relative cursor-pointer space-y-2.5 overflow-hidden border-[#3f3f46] bg-[#202023] p-3.5 shadow-sm transition-all hover:border-[#0075de]/50 hover:shadow-md ${
+                              task.status === "complete" ? "opacity-70" : ""
                             } ${
-                              snapshot.isDragging ? "z-50 rotate-1 bg-[#36373a] shadow-2xl shadow-black/30 ring-1 ring-white/15" : "hover:bg-[#323335]"
+                              snapshot.isDragging ? "z-50 rotate-1 bg-[#27272a] shadow-2xl ring-1 ring-[#0075de]/50" : ""
                             }`}
                           >
                             {/* Card Content */}
                             <div className="flex items-start justify-between gap-2">
-                              <h4 dir="auto" className={`w-full text-[14px] font-medium leading-6 transition-colors ${task.status === "complete" ? "text-white/35 line-through" : "text-white/90 group-hover/card:text-white"}`}>{task.title}</h4>
+                              <h4 dir="auto" className={`w-full text-xs font-semibold leading-5 transition-colors ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5] group-hover/card:text-[#0075de]"}`}>{task.title}</h4>
                             </div>
 
                             {/* Tags */}
                             {["submitted_for_review", "needs_rework"].includes(task.status) ? (
-                              <span className={`inline-flex w-fit rounded px-2 py-0.5 text-[10px] font-semibold ${task.status === "needs_rework" ? "bg-rose-500/10 text-rose-300" : "bg-amber-500/10 text-amber-300"}`}>
+                              <span className={`inline-flex w-fit rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${task.status === "needs_rework" ? "bg-rose-500/20 text-rose-300" : "bg-amber-500/20 text-amber-300"}`}>
                                 {task.status.replace(/_/g, " ")}
                               </span>
                             ) : null}
                             {task.tags?.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
+                              <div className="flex flex-wrap gap-1">
                                 {task.tags.map((t: any) => (
-                                  <span key={t.id} className="rounded bg-[#4573d2]/18 px-2 py-0.5 text-[10px] font-semibold text-[#8eb2ff]">
+                                  <span key={t.id} className="rounded bg-[#0075de]/20 px-2 py-0.5 text-[10px] font-semibold text-[#60a5fa]">
                                     {t.tag.name}
                                   </span>
                                 ))}
@@ -250,20 +250,20 @@ export default function BoardClient({ project }: { project: any }) {
                             )}
 
                             {/* Metadata */}
-                            <div className="flex items-center justify-between border-t border-[#424346] pt-3 text-[11px]">
-                              <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center justify-between border-t border-[#27272a] pt-2 text-[11px]">
+                              <div className="flex items-center gap-2.5 flex-wrap">
                                 {task.due_date && (
-                                    <span className={`flex items-center gap-1.5 font-medium ${isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) ? 'text-[#ff8b8b]' : isToday(new Date(task.due_date)) ? 'text-[#8eb2ff]' : 'text-white/45'}`}>
+                                    <span className={`flex items-center gap-1 font-medium ${isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) ? 'text-rose-400' : isToday(new Date(task.due_date)) ? 'text-[#60a5fa]' : 'text-[#a1a1aa]'}`}>
                                     <Calendar className="w-3 h-3" />
                                     {format(new Date(task.due_date), 'MMM d')}
                                   </span>
                                 )}
                                 {task.priority && priorityConfig[task.priority] && (
-                                  <span className={`px-2 py-0.5 rounded-[4px] font-bold uppercase tracking-widest text-[9px] ${priorityConfig[task.priority].bg} ${priorityConfig[task.priority].text}`}>
+                                  <span className={`px-1.5 py-0.5 rounded font-bold uppercase tracking-widest text-[9px] ${priorityConfig[task.priority].bg} ${priorityConfig[task.priority].text}`}>
                                     {task.priority}
                                   </span>
                                 )}
-                                <div className="flex items-center gap-2.5 text-white/30">
+                                <div className="flex items-center gap-2 text-[#71717a]">
                                   {task.subtasks?.length > 0 && (
                                   <div className={`flex items-center gap-1 ${task.status === "complete" ? "text-emerald-400" : ""}`}>
                                       <CheckSquare className="w-3 h-3" />
@@ -279,12 +279,12 @@ export default function BoardClient({ project }: { project: any }) {
                                 </div>
                               </div>
                               
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
                                 {task.status === "complete" ? <CheckSquare className="w-3.5 h-3.5 text-emerald-400" /> : null}
                                 {task.assignee && (
                                 <img 
-                                  src={task.assignee.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(task.assignee.full_name)}&background=random&color=fff&size=32`} 
-                                  className="h-6 w-6 shrink-0 rounded-full border border-white/15 ring-2 ring-[#2d2e30] transition-all group-hover/card:ring-[#323335]" 
+                                  src={task.assignee.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(task.assignee.full_name)}&background=0075de&color=fff&size=32`} 
+                                  className="h-5 w-5 shrink-0 rounded-full border border-[#3f3f46] ring-1 ring-[#27272a]" 
                                   alt={task.assignee.full_name} 
                                   title={task.assignee.full_name} 
                                 />
@@ -304,7 +304,7 @@ export default function BoardClient({ project }: { project: any }) {
             {/* Add Task input */}
             <div className="mt-2 group/addtask">
               {addingToSection === section.id ? (
-                <div className="space-y-2 p-1">
+                <div className="space-y-2 rounded-lg border border-[#3f3f46] bg-[#202023] p-2 shadow-md">
                   <input
                     ref={inputRef}
                     type="text"
@@ -315,18 +315,18 @@ export default function BoardClient({ project }: { project: any }) {
                       if (e.key === "Escape") { setAddingToSection(null); setNewTaskTitle("") }
                     }}
                     placeholder="Task name"
-                     className="h-10 w-full rounded-md border border-[#f06a6a] bg-[#323335] px-3 text-sm text-white outline-none shadow-lg shadow-black/10"
+                     className="h-9 w-full rounded-md border border-[#0075de] bg-[#18181b] px-3 text-xs text-[#f4f4f5] outline-none"
                   />
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleAddTask(section.id)}
-                       className="rounded-md bg-[#f06a6a] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#e45f5f]"
+                       className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-[#005bab]"
                     >
                       Add task
                     </button>
                     <button
                       onClick={() => { setAddingToSection(null); setNewTaskTitle("") }}
-                      className="p-1.5 text-white/40 hover:text-white/60 hover:bg-white/5 rounded-md"
+                      className="p-1 text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a] rounded-md"
                       aria-label="Cancel"
                     >
                       <X className="w-4 h-4" />
@@ -336,9 +336,9 @@ export default function BoardClient({ project }: { project: any }) {
               ) : (
                 <button
                   onClick={() => setAddingToSection(section.id)}
-                   className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-[13px] font-medium text-white/35 transition-colors hover:bg-white/5 hover:text-white/75"
+                   className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-[#a1a1aa] transition-colors hover:bg-[#202023] hover:text-[#f4f4f5]"
                 >
-                  <Plus className="w-4 h-4 text-white/20 group-hover/addtask:text-white/50" />
+                  <Plus className="w-3.5 h-3.5 text-[#71717a] group-hover/addtask:text-[#0075de]" />
                   Add task
                 </button>
               )}
@@ -349,7 +349,7 @@ export default function BoardClient({ project }: { project: any }) {
          {/* Add Section Placeholder */}
           <div className="w-[calc(100vw-3rem)] shrink-0 sm:w-[320px]">
             {isAddingSection ? (
-              <div className="rounded-lg border border-[#47484b] bg-[#2a2b2d] p-4">
+              <div className="rounded-xl border border-[#3f3f46] bg-[#202023] p-3 shadow-md">
                 <input
                   ref={sectionInputRef}
                   value={newSectionName}
@@ -362,12 +362,12 @@ export default function BoardClient({ project }: { project: any }) {
                     }
                   }}
                   placeholder="Section name"
-                   className="h-10 w-full rounded-md border border-[#56575a] bg-white/5 px-3 text-sm text-white outline-none focus:border-[#f06a6a]"
+                   className="h-9 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-xs text-[#f4f4f5] outline-none focus:border-[#0075de]"
                 />
-                <div className="mt-3 flex items-center gap-2">
+                <div className="mt-2.5 flex items-center gap-2">
                   <button
                     onClick={() => void handleAddSection()}
-                     className="rounded-md bg-[#f06a6a] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#e45f5f]"
+                     className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white hover:bg-[#005bab]"
                   >
                     Add section
                   </button>
@@ -376,7 +376,7 @@ export default function BoardClient({ project }: { project: any }) {
                       setIsAddingSection(false)
                       setNewSectionName("")
                     }}
-                    className="rounded-md px-3 py-1.5 text-xs font-medium text-white/50 hover:bg-white/5 hover:text-white/80"
+                    className="rounded-md px-3 py-1 text-xs font-medium text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
                   >
                     Cancel
                   </button>
@@ -385,9 +385,9 @@ export default function BoardClient({ project }: { project: any }) {
             ) : (
               <button
                 onClick={() => setIsAddingSection(true)}
-                 className="flex h-11 w-full items-center justify-center rounded-lg border border-dashed border-[#515255] text-sm font-medium text-white/30 transition-colors hover:bg-white/5 hover:text-white/60"
+                 className="flex h-10 w-full items-center justify-center rounded-xl border border-dashed border-[#3f3f46] text-xs font-semibold text-[#a1a1aa] transition-colors hover:bg-[#202023] hover:text-[#f4f4f5]"
               >
-                <Plus className="w-4 h-4 mr-2" /> Add section
+                <Plus className="w-3.5 h-3.5 mr-1.5 text-[#0075de]" /> Add section
               </button>
             )}
           </div>
