@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Noto_Sans_Arabic } from "next/font/google";
+import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const appSans = Noto_Sans_Arabic({
+const appSans = Inter({
   variable: "--font-taskflow-sans",
-  subsets: ["arabic", "latin"],
+  subsets: ["latin"],
   display: "swap",
 });
 

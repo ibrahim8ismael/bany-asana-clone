@@ -34,14 +34,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
   ])
 
   return (
-    <div className="flex h-dvh min-h-0 overflow-hidden bg-[#1e1f21]">
+    <div className="flex h-dvh min-h-0 overflow-hidden bg-[#18181b]">
       <Sidebar workspace={workspace} workspaces={workspaces} clients={clients} starredProjects={starredProjects} canImport={canImport} isSuperAdmin={isSuperAdmin} myTasksBadgeCount={myTasksBadgeCount} />
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         <Topbar
           user={currentUser ? { name: currentUser.full_name, email: currentUser.email, image: currentUser.avatar_url } : session.user}
           hasUnreadNotifications={unreadNotifications > 0}
         />
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#1e1f21]">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#18181b]">
           {children}
         </main>
       </div>

@@ -17,18 +17,18 @@ export default function AuthFormShell({
 }: AuthFormShellProps) {
   return (
     <section className="w-full max-w-[460px]">
-      <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#15171a]/95 text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-sm">
-        <div className="border-b border-white/8 px-5 py-5 sm:px-7 sm:py-7">
-          <div className="inline-flex items-center rounded-full border border-orange-400/20 bg-orange-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-100">
+      <div className="overflow-hidden rounded-2xl border border-[#3f3f46] bg-[#202023] text-[#f4f4f5] shadow-2xl">
+        <div className="border-b border-[#3f3f46] px-6 py-6">
+          <div className="inline-flex items-center rounded-full border border-[#0075de]/30 bg-[#0075de]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#60a5fa]">
             {eyebrow}
           </div>
-          <h1 className="mt-4 text-[clamp(1.5rem,7vw,2rem)] font-semibold leading-tight tracking-tight text-white">{title}</h1>
-          <p className="mt-3 max-w-sm text-sm leading-6 text-white/65">{description}</p>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight text-[#f4f4f5]">{title}</h1>
+          <p className="mt-2 text-xs leading-relaxed text-[#a1a1aa]">{description}</p>
         </div>
 
-        <div className="px-5 py-5 sm:px-7 sm:py-6">{children}</div>
+        <div className="px-6 py-6">{children}</div>
 
-        <div className="border-t border-white/8 bg-white/[0.03] px-5 py-4 text-sm text-white/55 sm:px-7">
+        <div className="border-t border-[#3f3f46] bg-[#18181b] px-6 py-4 text-xs text-[#a1a1aa]">
           {footer}
         </div>
       </div>

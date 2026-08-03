@@ -11,6 +11,7 @@ import { createTask, getProjectActivity, getProjectMemberManagement, updateProje
 import { parseActivityMeta } from "@/lib/activity"
 
 const STATUS_COLUMNS = [
+  { id: "backlog", name: "Backlog", workflowOnly: false },
   { id: "incomplete", name: "To Do", workflowOnly: false },
   { id: "in_progress", name: "In Progress", workflowOnly: false },
   { id: "submitted_for_review", name: "In Review", workflowOnly: true },
@@ -261,10 +262,6 @@ export default function ProjectBoardModal({
 
     const task = project.tasks.find((entry: any) => entry.id === draggableId)
     if (!task) return
-    if (task.quality_required || ["submitted_for_review", "needs_rework"].includes(destination.droppableId)) {
-      setError("Use the task quality panel to move reviewed work.")
-      return
-    }
 
     setError("")
 

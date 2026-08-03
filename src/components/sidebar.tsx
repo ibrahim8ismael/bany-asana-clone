@@ -278,29 +278,29 @@ export default function Sidebar({
       <aside
         id="mobile-sidebar"
         aria-label="Primary navigation"
-        className={`shrink-0 flex-col border-r border-[#414245] bg-[#2a2b2d] ${
+        className={`shrink-0 flex-col border-r border-[#3f3f46] bg-[#18181b] ${
           isMobileMenuOpen
-            ? "fixed inset-y-0 left-0 z-50 flex w-[min(88vw,320px)] shadow-2xl shadow-black/60"
+            ? "fixed inset-y-0 left-0 z-50 flex w-[min(88vw,320px)] shadow-2xl shadow-black/80"
             : "hidden"
         } lg:static lg:z-auto lg:flex lg:w-[260px] lg:shadow-none`}
       >
-        <div className="flex h-16 items-center justify-between border-b border-[#3d3e41] px-4">
+        <div className="flex h-14 items-center justify-between border-b border-[#3f3f46] px-4">
           <div className="flex min-w-0 items-center gap-3">
-            <Menu className="hidden h-5 w-5 shrink-0 text-white/65 lg:block" />
-            <div className="relative h-7 w-7 shrink-0" aria-hidden="true">
-              <span className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-[#f06a6a]" />
-              <span className="absolute bottom-0 left-0 h-2.5 w-2.5 rounded-full bg-[#f06a6a]" />
-              <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-[#f06a6a]" />
+            <Menu className="hidden h-4 w-4 shrink-0 text-[#a1a1aa] lg:block" />
+            <div className="relative h-6 w-6 shrink-0" aria-hidden="true">
+              <span className="absolute left-1/2 top-0 h-2 w-2 -translate-x-1/2 rounded-full bg-[#0075de]" />
+              <span className="absolute bottom-0 left-0 h-2 w-2 rounded-full bg-[#0075de]" />
+              <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-[#0075de]" />
             </div>
-            <span className="truncate text-lg font-semibold tracking-[-0.03em] text-white">TaskFlow</span>
+            <span className="truncate text-base font-semibold tracking-[-0.02em] text-[#f4f4f5]">TaskFlow</span>
           </div>
           <button
             type="button"
             onClick={() => setIsMobileMenuOpen(false)}
-            className="flex h-11 w-11 items-center justify-center rounded-md text-white/65 transition-colors hover:bg-white/5 hover:text-white lg:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5] lg:hidden"
             aria-label="Close navigation"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
@@ -308,24 +308,22 @@ export default function Sidebar({
           <div className="relative mb-3">
             <button
               onClick={() => setIsCreateMenuOpen((current) => !current)}
-              className="group flex h-10 items-center gap-2 rounded-full border border-[#5a5b5e] bg-[#343537] px-3 text-sm font-semibold text-white/90 transition-colors hover:bg-[#3b3c3f]"
+              className="group flex h-9 items-center gap-2 rounded-full bg-[#0075de] px-4 text-xs font-semibold text-white transition-all hover:bg-[#005bab] shadow-sm active:scale-95"
             >
-              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#f06a6a]">
-                <Plus className="h-3.5 w-3.5 text-white" />
-              </div>
+              <Plus className="h-4 w-4 text-white" />
               Create
             </button>
 
             {isCreateMenuOpen ? (
-              <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-lg border border-[#55565a] bg-[#343537] p-1.5 shadow-2xl">
+              <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-lg border border-[#3f3f46] bg-[#202023] p-1.5 shadow-2xl">
                 <button
                   onClick={() => {
                     setIsCreateMenuOpen(false)
                     setIsClientModalOpen(true)
                   }}
-                  className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm text-white/75 transition-colors hover:bg-[#454649] hover:text-white"
+                  className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-xs font-medium text-[#f4f4f5] transition-colors hover:bg-[#27272a]"
                 >
-                  <Briefcase className="h-4 w-4 text-[#f06a6a]" />
+                  <Briefcase className="h-3.5 w-3.5 text-[#0075de]" />
                   New client
                 </button>
                 <button
@@ -333,9 +331,9 @@ export default function Sidebar({
                     setIsCreateMenuOpen(false)
                     setIsProjectModalOpen(true)
                   }}
-                  className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm text-white/75 transition-colors hover:bg-[#454649] hover:text-white"
+                  className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-xs font-medium text-[#f4f4f5] transition-colors hover:bg-[#27272a]"
                 >
-                  <FolderKanban className="h-4 w-4 text-blue-400" />
+                  <FolderKanban className="h-3.5 w-3.5 text-[#0075de]" />
                   New project
                 </button>
               </div>
@@ -351,14 +349,14 @@ export default function Sidebar({
                 setWorkspaceError("")
                 setIsWorkspaceMenuOpen((current) => !current)
               }}
-              className="flex min-h-9 w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-xs font-medium text-white/60 transition-colors hover:bg-[#36373a] hover:text-white"
+              className="flex min-h-8 w-full items-center justify-between gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
             >
               <span className="truncate">{workspace?.name || "Choose a workspace"}</span>
               <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isWorkspaceMenuOpen ? "rotate-180" : ""}`} />
             </button>
 
             {isWorkspaceMenuOpen ? (
-              <div role="menu" aria-label="Workspaces" className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg border border-[#55565a] bg-[#343537] p-1.5 shadow-2xl">
+              <div role="menu" aria-label="Workspaces" className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg border border-[#3f3f46] bg-[#202023] p-1.5 shadow-2xl">
                 <div className="max-h-56 overflow-y-auto custom-scrollbar">
                   {workspaces.map((item) => (
                     <button
@@ -368,18 +366,18 @@ export default function Sidebar({
                       aria-checked={item.id === workspace?.id}
                       disabled={workspacePending}
                       onClick={() => handleWorkspaceSwitch(item.id)}
-                      className="flex min-h-10 w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-white/80 transition-colors hover:bg-[#454649] disabled:opacity-50"
+                      className="flex min-h-9 w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-[#f4f4f5] transition-colors hover:bg-[#27272a] disabled:opacity-50"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate">{item.name}</span>
-                        <span className="block truncate text-[10px] capitalize text-white/35">{item.effectiveRole}</span>
+                        <span className="block truncate font-medium">{item.name}</span>
+                        <span className="block truncate text-[10px] capitalize text-[#a1a1aa]">{item.effectiveRole}</span>
                       </span>
-                      {item.id === workspace?.id ? <Check className="h-4 w-4 shrink-0 text-emerald-400" aria-label="Active" /> : null}
+                      {item.id === workspace?.id ? <Check className="h-3.5 w-3.5 shrink-0 text-[#0075de]" aria-label="Active" /> : null}
                     </button>
                   ))}
                 </div>
 
-                <div className="mt-1 border-t border-white/10 pt-1">
+                <div className="mt-1 border-t border-[#3f3f46] pt-1">
                   <button
                     type="button"
                     role="menuitem"
@@ -388,7 +386,7 @@ export default function Sidebar({
                       setWorkspaceError("")
                       setIsCreateWorkspaceOpen(true)
                     }}
-                    className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-white/70 transition-colors hover:bg-[#454649] hover:text-white"
+                    className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Create workspace
@@ -403,7 +401,7 @@ export default function Sidebar({
                         setWorkspaceError("")
                         setIsRenameWorkspaceOpen(true)
                       }}
-                      className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-white/70 transition-colors hover:bg-[#454649] hover:text-white"
+                      className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                       Rename current workspace
@@ -414,7 +412,7 @@ export default function Sidebar({
                       href="/admin/members"
                       role="menuitem"
                       onClick={() => setIsWorkspaceMenuOpen(false)}
-                      className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-white/70 transition-colors hover:bg-[#454649] hover:text-white"
+                      className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
                     >
                       <UserPlus className="h-3.5 w-3.5" />
                       Manage members
@@ -423,7 +421,7 @@ export default function Sidebar({
                 </div>
               </div>
             ) : null}
-            {workspaceError && isWorkspaceMenuOpen ? <p className="px-3 pt-1 text-xs text-red-300">{workspaceError}</p> : null}
+            {workspaceError && isWorkspaceMenuOpen ? <p className="px-3 pt-1 text-xs text-red-400">{workspaceError}</p> : null}
           </div>
 
           <ul className="space-y-0.5">
@@ -431,24 +429,24 @@ export default function Sidebar({
               <li key={link.name}>
                 <Link
                   href={link.href}
-                  className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm transition-colors ${
+                  className={`flex h-9 items-center gap-3 rounded-md px-3 text-xs transition-colors ${
                     isActive(link.href)
-                      ? "bg-[#454649] font-semibold text-white"
-                      : "text-white/75 hover:bg-[#36373a] hover:text-white"
+                      ? "bg-[#27272a] font-semibold text-[#f4f4f5]"
+                      : "text-[#a1a1aa] hover:bg-[#27272a]/60 hover:text-[#f4f4f5]"
                   }`}
                 >
-                   <link.icon className="h-[18px] w-[18px] text-white/60" />
+                   <link.icon className="h-4 w-4 text-[#a1a1aa]" />
                    {link.name}
-                   {link.badge > 0 ? <span className="ml-auto rounded-full bg-[#f06a6a] px-2 py-0.5 text-[10px] font-bold text-white">{link.badge > 99 ? "99+" : link.badge}</span> : null}
+                   {link.badge > 0 ? <span className="ml-auto rounded-full bg-[#0075de] px-2 py-0.5 text-[10px] font-bold text-white">{link.badge > 99 ? "99+" : link.badge}</span> : null}
                 </Link>
               </li>
             ))}
           </ul>
 
-          <div className="pt-5">
+          <div className="pt-4">
             <button
               onClick={() => setInsightsExpanded((current) => !current)}
-              className="mb-1 flex h-8 w-full items-center gap-1.5 px-3 text-[13px] font-semibold text-white/80 transition-colors hover:text-white"
+              className="mb-1 flex h-7 w-full items-center gap-1.5 px-3 text-[12px] font-bold uppercase tracking-wider text-[#71717a] transition-colors hover:text-[#f4f4f5]"
             >
               <ChevronDown className={`h-3 w-3 transition-transform ${insightsExpanded ? "" : "-rotate-90"}`} />
               Insights
@@ -459,13 +457,13 @@ export default function Sidebar({
                   <li key={link.name}>
                     <Link
                       href={link.href}
-                      className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm transition-colors ${
+                      className={`flex h-9 items-center gap-3 rounded-md px-3 text-xs transition-colors ${
                         isActive(link.href)
-                          ? "bg-[#454649] font-semibold text-white"
-                          : "text-white/75 hover:bg-[#36373a] hover:text-white"
+                          ? "bg-[#27272a] font-semibold text-[#f4f4f5]"
+                          : "text-[#a1a1aa] hover:bg-[#27272a]/60 hover:text-[#f4f4f5]"
                       }`}
                     >
-                      <link.icon className="h-4 w-4" />
+                      <link.icon className="h-3.5 w-3.5" />
                       {link.name}
                     </Link>
                   </li>
@@ -474,10 +472,10 @@ export default function Sidebar({
             ) : null}
           </div>
 
-          <div className="pt-5">
+          <div className="pt-4">
             <button
               onClick={() => setStarredExpanded((current) => !current)}
-              className="mb-1 flex h-8 w-full items-center gap-1.5 px-3 text-[13px] font-semibold text-white/80 transition-colors hover:text-white"
+              className="mb-1 flex h-7 w-full items-center gap-1.5 px-3 text-[12px] font-bold uppercase tracking-wider text-[#71717a] transition-colors hover:text-[#f4f4f5]"
             >
               <ChevronDown className={`h-3 w-3 transition-transform ${starredExpanded ? "" : "-rotate-90"}`} />
               Starred
@@ -492,16 +490,16 @@ export default function Sidebar({
                         <li key={project.id}>
                           <Link
                             href={href}
-                            className={`flex min-h-10 items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                            className={`flex min-h-8 items-center gap-3 rounded-md px-3 py-1.5 text-xs transition-colors ${
                               pathname?.includes(project.id)
-                                ? "bg-[#454649] font-semibold text-white"
-                                : "text-white/70 hover:bg-[#36373a] hover:text-white"
+                                ? "bg-[#27272a] font-semibold text-[#f4f4f5]"
+                                : "text-[#a1a1aa] hover:bg-[#27272a]/60 hover:text-[#f4f4f5]"
                             }`}
                           >
-                            <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
+                            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                             <div className="min-w-0 flex-1">
                               <div className="truncate">{project.name}</div>
-                              {project.client?.name ? <div className="truncate text-[11px] text-white/30">{project.client.name}</div> : null}
+                              {project.client?.name ? <div className="truncate text-[10px] text-[#71717a]">{project.client.name}</div> : null}
                             </div>
                           </Link>
                         </li>
@@ -509,57 +507,57 @@ export default function Sidebar({
                     })}
                   </ul>
                 ) : (
-                  <div className="px-3 py-2 text-xs italic text-white/30">No starred items</div>
+                  <div className="px-3 py-1.5 text-xs italic text-[#71717a]">No starred items</div>
                 )}
               </div>
             ) : null}
           </div>
 
-          <div className="pb-8 pt-5">
+          <div className="pb-6 pt-4">
             <div className="group mb-1 flex items-center justify-between px-3">
               <button
                 onClick={() => setClientsExpanded((current) => !current)}
-                className="flex h-8 items-center gap-1.5 text-[13px] font-semibold text-white/80 transition-colors hover:text-white"
+                className="flex h-7 items-center gap-1.5 text-[12px] font-bold uppercase tracking-wider text-[#71717a] transition-colors hover:text-[#f4f4f5]"
               >
                 <ChevronDown className={`h-3 w-3 transition-transform ${clientsExpanded ? "" : "-rotate-90"}`} />
                 Clients
               </button>
               <button
                 onClick={() => setIsClientModalOpen(true)}
-                className="rounded p-1 transition-opacity hover:bg-white/10"
+                className="rounded p-1 transition-opacity hover:bg-[#27272a]"
                 aria-label="Create new client"
               >
-                <Plus className="h-3.5 w-3.5 text-white/40" />
+                <Plus className="h-3.5 w-3.5 text-[#71717a]" />
               </button>
             </div>
 
             {clientsExpanded ? (
-              <ul className="space-y-1">
+              <ul className="space-y-0.5">
                 {clients.map((client) => {
                   const clientExpanded = expandedClientIds.has(client.id)
                   const directTasksHref = `/clients?clientId=${client.id}`
 
                   return (
-                    <li key={client.id} className="space-y-1">
-                      <div className="flex items-center gap-1 px-2">
+                    <li key={client.id} className="space-y-0.5">
+                      <div className="flex items-center gap-1 px-1">
                         <button
                           onClick={() => toggleClient(client.id)}
-                          className="rounded p-1 text-white/40 transition-colors hover:bg-white/5 hover:text-white/70"
+                          className="rounded p-1 text-[#71717a] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
                           aria-label={`Toggle ${client.name}`}
                         >
                           <ChevronDown className={`h-3 w-3 transition-transform ${clientExpanded ? "" : "-rotate-90"}`} />
                         </button>
                         <Link
                           href={directTasksHref}
-                          className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-sm text-white/70 transition-colors hover:bg-[#36373a] hover:text-white"
+                          className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-xs text-[#f4f4f5] transition-colors hover:bg-[#27272a]"
                         >
                           <span
                             className="h-2 w-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: client.color || "#f06a6a" }}
+                            style={{ backgroundColor: client.color || "#0075de" }}
                           />
                           <span className="truncate font-medium">{client.name}</span>
                           {client.directTaskCount > 0 ? (
-                            <span className="ml-auto rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-white/40">
+                            <span className="ml-auto rounded-full bg-[#27272a] px-1.5 py-0.5 text-[10px] font-bold text-[#a1a1aa]">
                               {client.directTaskCount}
                             </span>
                           ) : null}
@@ -567,21 +565,21 @@ export default function Sidebar({
                       </div>
 
                       {clientExpanded ? (
-                        <ul className="space-y-0.5 pl-8">
+                        <ul className="space-y-0.5 pl-6">
                           {client.projects.map((project) => {
                             const href = `/projects/${project.id}/${project.default_view}`
                             return (
                               <li key={project.id}>
                                 <Link
                                   href={href}
-                                  className={`flex min-h-9 items-center gap-2 rounded-md px-2 text-sm transition-colors ${
+                                  className={`flex min-h-8 items-center gap-2 rounded-md px-2 text-xs transition-colors ${
                                     pathname?.includes(project.id)
-                                      ? "bg-[#454649] font-semibold text-white"
-                                      : "text-white/65 hover:bg-[#36373a] hover:text-white"
+                                      ? "bg-[#27272a] font-semibold text-[#f4f4f5]"
+                                      : "text-[#a1a1aa] hover:bg-[#27272a]/60 hover:text-[#f4f4f5]"
                                   }`}
                                 >
-                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-white" style={{ backgroundColor: project.color || client.color || "#9f8fef" }}>
-                                    <FolderKanban className="h-3 w-3" />
+                                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white" style={{ backgroundColor: project.color || client.color || "#0075de" }}>
+                                    <FolderKanban className="h-2.5 w-2.5" />
                                   </span>
                                   <span className="truncate">{project.name}</span>
                                 </Link>
@@ -593,16 +591,16 @@ export default function Sidebar({
                             <li>
                               <Link
                                 href={directTasksHref}
-                                className="flex items-center gap-3 rounded-md px-3 py-1.5 text-xs font-medium text-white/45 transition-colors hover:bg-white/5 hover:text-white/75"
+                                className="flex items-center gap-2 rounded-md px-2 py-1 text-[11px] font-medium text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
                               >
-                                <Briefcase className="h-3.5 w-3.5 text-orange-400" />
+                                <Briefcase className="h-3 w-3 text-[#0075de]" />
                                 Direct tasks
                               </Link>
                             </li>
                           ) : null}
 
                           {client.projects.length === 0 && client.directTaskCount === 0 ? (
-                            <li className="px-3 py-1 text-xs text-white/25">No work added yet</li>
+                            <li className="px-2 py-1 text-[11px] text-[#71717a]">No work added yet</li>
                           ) : null}
                         </ul>
                       ) : null}
@@ -610,51 +608,51 @@ export default function Sidebar({
                   )
                 })}
 
-                {clients.length === 0 ? <li className="px-3 py-2 text-xs text-white/30">No clients yet</li> : null}
+                {clients.length === 0 ? <li className="px-3 py-1.5 text-xs text-[#71717a]">No clients yet</li> : null}
               </ul>
             ) : null}
           </div>
         </nav>
 
-        <div className="space-y-0.5 border-t border-[#414245] p-3">
+        <div className="space-y-0.5 border-t border-[#3f3f46] p-3 bg-[#18181b]">
           <Link
             href="/account"
-            className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-xs font-medium text-white/65 transition-colors hover:bg-[#36373a] hover:text-white"
+            className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-xs font-medium text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
           >
-            <Settings className="h-3.5 w-3.5 text-violet-400" />
+            <Settings className="h-3.5 w-3.5 text-[#a1a1aa]" />
             Account
           </Link>
           {workspace?.canAdmin ? (
             <Link
               href="/admin/members"
-              className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-xs font-medium text-white/65 transition-colors hover:bg-[#36373a] hover:text-white"
+              className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-xs font-medium text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
             >
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+              <ShieldCheck className="h-3.5 w-3.5 text-[#a1a1aa]" />
               {isSuperAdmin ? "Admin console" : "Manage members"}
             </Link>
           ) : null}
           {canImport ? (
             <Link
               href="/import"
-              className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-xs font-medium text-white/65 transition-colors hover:bg-[#36373a] hover:text-white"
+              className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-xs font-medium text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
             >
-              <Upload className="h-3.5 w-3.5 text-emerald-400" />
+              <Upload className="h-3.5 w-3.5 text-[#a1a1aa]" />
               Import CSV
             </Link>
           ) : null}
           <Link
             href="/help"
-            className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-xs font-medium text-white/65 transition-colors hover:bg-[#36373a] hover:text-white"
+            className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-xs font-medium text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
           >
-            <LifeBuoy className="h-3.5 w-3.5 text-blue-400" />
+            <LifeBuoy className="h-3.5 w-3.5 text-[#a1a1aa]" />
             Help center
           </Link>
           {workspace?.canAdmin ? (
             <button
               onClick={() => setIsInviteModalOpen(true)}
-              className="mt-2 flex h-10 w-full items-center justify-center gap-3 rounded-md border border-[#57585b] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-[#36373a]"
+              className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-full border border-[#0075de] text-xs font-semibold text-[#0075de] transition-colors hover:bg-[#0075de] hover:text-white"
             >
-              <UserPlus className="h-3.5 w-3.5 text-orange-400" />
+              <UserPlus className="h-3.5 w-3.5" />
               Invite teammates
             </button>
           ) : null}

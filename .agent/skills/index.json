@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-01T04:48:24.161Z",
+  "generatedAt": "2026-08-01T03:11:49.634Z",
   "version": 1,
   "skillCount": 21,
   "referenceCount": 10,
@@ -28,7 +28,7 @@
   ],
   "environment": {
     "noticeFilePresent": true,
-    "designContextFilePresent": false
+    "designContextFilePresent": true
   },
   "skills": [
     {
