@@ -19,7 +19,7 @@ test("taskAccessWhere keeps project, direct-client, and personal access distinct
             members: {
               some: {
                 user_id: "user-1",
-                role: { in: ["owner", "admin", "member", "guest"] },
+                role: { in: ["admin", "user"] },
               },
             },
           },

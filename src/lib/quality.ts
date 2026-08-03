@@ -96,3 +96,40 @@ export function resolveQualityReviewOutcome({
   if (requiresRework) return "needs_rework" as const
   return severities.includes("minor") ? "approved_with_notes" as const : "approved" as const
 }
+
+export function buildQualityDecisionTaskUpdate(input: {
+  outcome: "approved" | "approved_with_notes" | "needs_rework"
+  now: Date
+  reworkDueDate: Date | null
+  firstAccountableGrade: QualityGrade | null
+  finalGrade: QualityGrade
+  qualityScore: number | null
+  reworkCount: number
+  blockerCount: number
+}) {
+  if (input.outcome === "needs_rework") {
+    return {
+      status: "needs_rework",
+      quality_state: "needs_rework",
+      rework_due_date: input.reworkDueDate,
+      completed_at: null,
+      first_quality_grade: input.firstAccountableGrade,
+      quality_score: input.qualityScore,
+      rework_count: input.reworkCount,
+      quality_blocker_count: input.blockerCount,
+    } as const
+  }
+
+  return {
+    status: "complete",
+    quality_state: input.outcome,
+    rework_due_date: null,
+    completed_at: input.now,
+    approved_at: input.now,
+    first_quality_grade: input.firstAccountableGrade,
+    final_quality_grade: input.finalGrade,
+    quality_score: input.qualityScore,
+    rework_count: input.reworkCount,
+    quality_blocker_count: input.blockerCount,
+  } as const
+}

@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client"
 import { parseCsv, type CsvRow } from "@/lib/csv"
 import { prisma } from "@/lib/prisma"
+import { deriveProjectCompletionStatus } from "@/lib/workflow"
 
 const HEADER_ALIASES = {
   title: ["title", "name", "task name"],
@@ -156,6 +157,7 @@ function normalizeStatus(row: CsvRow, options?: { completedAt?: Date | null; sec
   }
 
   if (["complete", "completed", "done"].includes(statusValue)) return "complete"
+  if (["backlog", "back log", "icebox", "ice box"].includes(statusValue)) return "backlog"
   if (["in progress", "in_progress", "progress", "doing"].includes(statusValue)) return "in_progress"
   return "incomplete"
 }
@@ -640,6 +642,7 @@ export async function importTasksFromCsv(options: {
 
   const result = await prisma.$transaction(async (tx) => {
     let projectId: string | null = null
+    let projectClientId: string | null = null
     let workspaceId = ""
     let projectQualityPolicy = "off"
     const sectionCache = new Map<string, string>()
@@ -657,10 +660,11 @@ export async function importTasksFromCsv(options: {
     if (options.target.type === "existing_project") {
       const project = await tx.project.findUnique({
         where: { id: options.target.projectId },
-        select: { id: true, workspace_id: true, quality_policy: true },
+        select: { id: true, workspace_id: true, client_id: true, quality_policy: true },
       })
       if (!project) throw new Error("Target project not found")
       projectId = project.id
+      projectClientId = project.client_id
       workspaceId = project.workspace_id
       projectQualityPolicy = project.quality_policy
     } else if (options.target.type === "new_project") {
@@ -746,6 +750,7 @@ export async function importTasksFromCsv(options: {
           data: {
             workspace_id: workspaceId,
             project_id: projectId,
+            client_id: projectClientId,
             parent_task_id: parentTaskId,
             section_id: sectionId,
             title: row.title,
@@ -819,6 +824,25 @@ export async function importTasksFromCsv(options: {
     if (queue.length > 0) {
       for (const row of queue) {
         warnings.push(`Row ${row.rowNumber}: could not resolve parent task "${row.parentTask}" and was skipped.`)
+      }
+    }
+
+    if (projectId) {
+      const project = await tx.project.findUnique({
+        where: { id: projectId },
+        select: {
+          status: true,
+          tasks: { where: { archived: false }, select: { status: true } },
+        },
+      })
+      if (project) {
+        const nextStatus = deriveProjectCompletionStatus(
+          project.status,
+          project.tasks.map((task) => task.status)
+        )
+        if (nextStatus !== project.status) {
+          await tx.project.update({ where: { id: projectId }, data: { status: nextStatus } })
+        }
       }
     }
 

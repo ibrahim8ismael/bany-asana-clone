@@ -3,6 +3,7 @@ import { parseActivityMeta } from "@/lib/activity"
 import { getActiveWorkspaceForUser, isSuperAdminUser, projectAccessWhere, taskAccessWhere, workspaceAccessWhere } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
+import { DIRECT_CLIENT_TASK_SCOPE } from "@/lib/client-hierarchy"
 
 const taskCardSelect = {
   id: true,
@@ -237,6 +238,7 @@ export async function getScopedClients(userId: string) {
           tasks: {
             where: {
               archived: false,
+              parent_task_id: null,
             },
             orderBy: [{ status: "asc" }, { due_date: "asc" }, { created_at: "desc" }],
             select: taskCardSelect,
@@ -246,9 +248,7 @@ export async function getScopedClients(userId: string) {
       },
       tasks: {
         where: {
-          project_id: null,
-          parent_task_id: null,
-          archived: false,
+          ...DIRECT_CLIENT_TASK_SCOPE,
         },
         orderBy: [{ status: "asc" }, { due_date: "asc" }, { created_at: "desc" }],
         select: taskCardSelect,

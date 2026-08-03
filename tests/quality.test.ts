@@ -1,6 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import {
+  buildQualityDecisionTaskUpdate,
   calculateGradeKpiScore,
   calculateTaskQualityScore,
   issueAffectsQualityScore,
@@ -44,4 +45,24 @@ test("grade KPI keeps the first grade and penalizes repeated failed cycles", () 
   assert.equal(calculateGradeKpiScore("needs_rework", 2), 50)
   assert.equal(calculateGradeKpiScore("needs_rework", 3), 40)
   assert.equal(calculateGradeKpiScore("major_rework", 2), 20)
+})
+
+test("Needs Rework is persisted through the quality decision with counters and deadline", () => {
+  const dueDate = new Date("2026-08-10T12:00:00.000Z")
+  const update = buildQualityDecisionTaskUpdate({
+    outcome: "needs_rework",
+    now: new Date("2026-08-03T12:00:00.000Z"),
+    reworkDueDate: dueDate,
+    firstAccountableGrade: "needs_rework",
+    finalGrade: "needs_rework",
+    qualityScore: 60,
+    reworkCount: 1,
+    blockerCount: 0,
+  })
+
+  assert.equal(update.status, "needs_rework")
+  assert.equal(update.quality_state, "needs_rework")
+  assert.equal(update.rework_due_date, dueDate)
+  assert.equal(update.rework_count, 1)
+  assert.equal(update.completed_at, null)
 })

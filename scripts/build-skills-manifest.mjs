@@ -60,6 +60,7 @@ async function fileExists(filePath) {
 }
 
 async function main() {
+  await fs.mkdir(path.join(skillsDir, "reference"), { recursive: true })
   const skillEntries = await fs.readdir(skillsDir, { withFileTypes: true })
   const skillFiles = skillEntries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md")

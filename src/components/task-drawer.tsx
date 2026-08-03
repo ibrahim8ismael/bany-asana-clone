@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import TaskSelectMenu, { TaskSelectOption } from "@/components/task-select-menu"
 import { describeTaskHistory } from "@/lib/task-history"
+import { TASK_WORKFLOW_STAGES, validateManualTaskTransition } from "@/lib/workflow"
 import {
   Briefcase,
   Calendar,
@@ -35,17 +36,6 @@ import {
 } from "lucide-react"
 
 const priorityOptions = ["high", "medium", "low"] as const
-const statusOptions = ["backlog", "incomplete", "in_progress", "submitted_for_review", "needs_rework", "complete"] as const
-
-const statusLabels: Record<string, string> = {
-  backlog: "Backlog",
-  incomplete: "To Do",
-  in_progress: "In Progress",
-  submitted_for_review: "In Review",
-  needs_rework: "Needs Rework",
-  complete: "Done",
-}
-
 const priorityStyles: Record<string, string> = {
   high: "bg-red-500/20 text-red-300 border-red-500/30",
   medium: "bg-amber-500/20 text-amber-300 border-amber-500/30",
@@ -556,11 +546,6 @@ export default function TaskDrawer({
 
               <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[6rem_minmax(0,280px)] sm:gap-4">
                 <span className="text-gray-400">Status</span>
-                {displayTask.quality_required ? (
-                  <span className="w-fit rounded-full border border-gray-200 px-2.5 py-1 text-xs font-semibold capitalize text-gray-600 dark:border-zinc-700 dark:text-zinc-300">
-                    {displayTask.status.replace(/_/g, " ")}
-                  </span>
-                ) : (
                   <select
                     title="Status"
                     aria-label="Select status"
@@ -572,13 +557,22 @@ export default function TaskDrawer({
                     }
                     className="rounded border border-gray-200 bg-transparent px-2 py-1 text-xs font-medium capitalize text-gray-700 outline-none dark:border-zinc-700 dark:text-gray-200"
                   >
-                    {statusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {status.replace(/_/g, " ")}
+                    {TASK_WORKFLOW_STAGES.map((stage) => (
+                      <option
+                        key={stage.id}
+                        value={stage.id}
+                        disabled={stage.id !== displayTask.status && Boolean(validateManualTaskTransition({
+                          from: displayTask.status,
+                          to: stage.id,
+                          qualityRequired: Boolean(displayTask.quality_required),
+                          qualityState: displayTask.quality_state || "not_required",
+                        }))}
+                      >
+                        {stage.label}
                       </option>
                     ))}
                   </select>
-                )}
+                  {displayTask.quality_required ? <span className="text-[10px] text-amber-500">Quality stages use the review controls.</span> : null}
               </div>
             </div>
 

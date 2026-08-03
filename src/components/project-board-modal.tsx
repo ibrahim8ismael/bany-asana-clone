@@ -9,28 +9,7 @@ import ProjectMembersManager, { type ProjectMemberManagementData } from "@/compo
 import ProjectQualityPolicySettings from "@/components/project-quality-policy-settings"
 import { createTask, getProjectActivity, getProjectMemberManagement, updateProject, updateTask } from "@/actions/server-actions"
 import { parseActivityMeta } from "@/lib/activity"
-
-const STATUS_COLUMNS = [
-  { id: "backlog", name: "Backlog", workflowOnly: false },
-  { id: "incomplete", name: "To Do", workflowOnly: false },
-  { id: "in_progress", name: "In Progress", workflowOnly: false },
-  { id: "submitted_for_review", name: "In Review", workflowOnly: true },
-  { id: "needs_rework", name: "Needs Rework", workflowOnly: true },
-  { id: "complete", name: "Done", workflowOnly: false },
-] as const
-
-function findSectionIdForStatus(project: any, status: string) {
-  const sections = project.sections || []
-  const normalizedMatchers =
-    status === "complete"
-      ? [/done/i, /complete/i]
-      : status === "in_progress"
-        ? [/progress/i, /doing/i]
-        : [/to\s*do/i, /backlog/i, /todo/i]
-
-  const namedMatch = sections.find((section: any) => normalizedMatchers.some((matcher) => matcher.test(section.name || "")))
-  return namedMatch?.id || sections[0]?.id || undefined
-}
+import { TASK_WORKFLOW_STAGES, validateManualTaskTransition } from "@/lib/workflow"
 
 function formatProjectActivity(activity: any) {
   const actor = activity.actor?.full_name || "Someone"
@@ -112,7 +91,7 @@ export default function ProjectBoardModal({
 
   const tasksByStatus = useMemo(() => {
     if (!project) return []
-    return STATUS_COLUMNS.map((column) => ({
+    return TASK_WORKFLOW_STAGES.map((column) => ({
       ...column,
       tasks: project.tasks.filter((task: any) => task.status === column.id),
     }))
@@ -230,11 +209,12 @@ export default function ProjectBoardModal({
 
     setError("")
 
-    const sectionId = findSectionIdForStatus(project, status)
+    const sectionId = project.sections?.[0]?.id
     const created = await createTask({
       title,
       project_id: project.id,
       section_id: sectionId,
+      status: status as any,
     })
 
     if (!created.success || !created.task) {
@@ -242,15 +222,7 @@ export default function ProjectBoardModal({
       return
     }
 
-    let nextTask = created.task
-    if (status !== "incomplete") {
-      const updated = await updateTask(created.task.id, { status: status as any })
-      if (updated.success && updated.task) {
-        nextTask = updated.task
-      }
-    }
-
-    onTaskUpdated(nextTask)
+    onTaskUpdated(created.task)
     setAddingStatus(null)
     setNewTaskTitle("")
   }
@@ -263,11 +235,21 @@ export default function ProjectBoardModal({
     const task = project.tasks.find((entry: any) => entry.id === draggableId)
     if (!task) return
 
+    const transitionError = validateManualTaskTransition({
+      from: task.status,
+      to: destination.droppableId,
+      qualityRequired: Boolean(task.quality_required),
+      qualityState: task.quality_state || "not_required",
+    })
+    if (transitionError) {
+      setError(transitionError)
+      return
+    }
+
     setError("")
 
     const updated = await updateTask(task.id, {
       status: destination.droppableId as any,
-      section_id: findSectionIdForStatus(project, destination.droppableId) || null,
     })
 
     if (!updated.success || !updated.task) {
@@ -374,18 +356,18 @@ export default function ProjectBoardModal({
                       <div className="border-b border-white/5 px-4 py-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-sm font-bold uppercase tracking-[0.2em] text-white/70">{column.name}</div>
-                            <div className="mt-1 text-xs text-white/30">Tasks whose status is currently {column.name.toLowerCase()}.</div>
+                            <div className="text-sm font-bold uppercase tracking-[0.2em] text-white/70">{column.label}</div>
+                            <div className="mt-1 text-xs text-white/30">Tasks whose status is currently {column.label.toLowerCase()}.</div>
                           </div>
                           <div className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold text-white/35">{column.tasks.length}</div>
                         </div>
                       </div>
 
-                      <Droppable droppableId={column.id}>
+                      <Droppable droppableId={column.id} isDropDisabled={!column.manualTransition}>
                         {(provided, snapshot) => (
                           <div ref={provided.innerRef} {...provided.droppableProps} className={`flex-1 space-y-3 p-4 ${snapshot.isDraggingOver ? "bg-white/[0.03]" : ""}`}>
                             {column.tasks.map((task: any, index: number) => (
-                              <Draggable key={task.id} draggableId={task.id} index={index} disableInteractiveElementBlocking isDragDisabled={task.quality_required}>
+                              <Draggable key={task.id} draggableId={task.id} index={index} disableInteractiveElementBlocking isDragDisabled={!TASK_WORKFLOW_STAGES.some((stage) => stage.id !== task.status && !validateManualTaskTransition({ from: task.status, to: stage.id, qualityRequired: Boolean(task.quality_required), qualityState: task.quality_state || "not_required" }))}>
                                 {(draggableProvided, draggableSnapshot) => (
                                   <div ref={draggableProvided.innerRef} {...draggableProvided.draggableProps} {...draggableProvided.dragHandleProps} style={draggableProvided.draggableProps.style}>
                                     <button onClick={() => onOpenTask(task)} className={`w-full rounded-2xl border border-white/5 bg-[#252628] px-4 py-3 text-left transition-colors ${draggableSnapshot.isDragging ? "rotate-1 border-white/20 shadow-2xl" : "hover:bg-[#2c2d2f]"}`}>
@@ -410,7 +392,7 @@ export default function ProjectBoardModal({
 
                             {provided.placeholder}
 
-                            {!column.workflowOnly && addingStatus === column.id ? (
+                            {column.manualTransition && addingStatus === column.id ? (
                               <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-3">
                                 <input
                                   value={newTaskTitle}
@@ -422,7 +404,7 @@ export default function ProjectBoardModal({
                                       setNewTaskTitle("")
                                     }
                                   }}
-                                  placeholder={`Add a ${column.name.toLowerCase()} task`}
+                                  placeholder={`Add a ${column.label.toLowerCase()} task`}
                                   className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/25"
                                   autoFocus
                                 />
@@ -435,7 +417,7 @@ export default function ProjectBoardModal({
                                   </button>
                                 </div>
                               </div>
-                            ) : !column.workflowOnly ? (
+                            ) : column.manualTransition ? (
                               <button onClick={() => setAddingStatus(column.id)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 px-4 py-3 text-xs font-bold uppercase tracking-[0.18em] text-white/30 transition-colors hover:border-white/20 hover:bg-white/5 hover:text-white/60">
                                 <Plus className="h-3.5 w-3.5" />
                                 Add task

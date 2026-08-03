@@ -6,19 +6,12 @@ import { ChevronDown, Plus, X, CheckCircle, Flag } from "lucide-react"
 import TaskDrawer from "@/components/task-drawer"
 import { createTask } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
+import { getTaskWorkflowLabel, getTaskWorkflowStage, isTaskWorkflowStage } from "@/lib/workflow"
 
 const priorityStyles: Record<string, string> = {
   high: "bg-red-100 text-red-700",
   medium: "bg-yellow-100 text-yellow-700",
   low: "bg-blue-100 text-blue-700",
-}
-
-const statusStyles: Record<string, string> = {
-  complete: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  in_progress: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  submitted_for_review: "bg-amber-500/10 text-amber-600 dark:text-amber-300",
-  needs_rework: "bg-rose-500/10 text-rose-600 dark:text-rose-300",
-  incomplete: "bg-gray-100 text-gray-500 dark:bg-zinc-800 dark:text-zinc-400",
 }
 
 export default function ListClient({ project }: { project: any }) {
@@ -181,8 +174,8 @@ export default function ListClient({ project }: { project: any }) {
                               ) : ""}
                             </td>
                             <td className="px-4 py-2.5 border-l dark:border-zinc-700 capitalize text-xs">
-                              <span className={`inline-flex rounded-full px-2 py-1 font-semibold ${statusStyles[task.status] || statusStyles.incomplete}`}>
-                                {task.status.replace(/_/g, " ")}
+                              <span className={`inline-flex rounded-full px-2 py-1 font-semibold ${isTaskWorkflowStage(task.status) ? getTaskWorkflowStage(task.status).badgeClass : "bg-gray-100 text-gray-500"}`}>
+                                {getTaskWorkflowLabel(task.status)}
                               </span>
                             </td>
                           </tr>

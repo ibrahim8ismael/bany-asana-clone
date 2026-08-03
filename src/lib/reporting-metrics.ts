@@ -12,6 +12,7 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns"
+import { TASK_WORKFLOW_STAGES } from "@/lib/workflow"
 
 export const REPORTING_PERIOD_OPTIONS = [
   { value: "week", label: "This week" },
@@ -27,11 +28,7 @@ export const REPORTING_SCOPE_OPTIONS = [
 
 export const REPORTING_STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
-  { value: "incomplete", label: "To do" },
-  { value: "in_progress", label: "In progress" },
-  { value: "submitted_for_review", label: "In quality review" },
-  { value: "needs_rework", label: "Needs rework" },
-  { value: "complete", label: "Complete" },
+  ...TASK_WORKFLOW_STAGES.map((stage) => ({ value: stage.id, label: stage.label })),
 ] as const
 
 export const REPORTING_PRIORITY_OPTIONS = [

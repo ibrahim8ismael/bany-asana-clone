@@ -212,11 +212,6 @@ export default function AdminMembersClient({
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-semibold text-[#f4f4f5]">{membership.user.full_name}</span>
                           {membership.user.is_super_admin ? (
-<<<<<<< HEAD
-                            <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-300">
-                              super admin
-                            </span>
-=======
                             <div className="flex items-center rounded-full border border-violet-500/20 bg-violet-500/10 text-violet-200">
                               <span className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
                                 super admin
@@ -233,7 +228,6 @@ export default function AdminMembersClient({
                                 </button>
                               )}
                             </div>
->>>>>>> 364de65 (test)
                           ) : null}
                         </div>
                         <div className="text-[11px] text-[#a1a1aa] mt-0.5">{membership.user.email}</div>
@@ -262,25 +256,14 @@ export default function AdminMembersClient({
                             <option value="admin">Admin</option>
                             <option value="user">User</option>
                           </select>
-<<<<<<< HEAD
-                        ) : null}
-                        {membership.role !== "owner" ? (
-                          <button
-=======
                           <Button
                             variant="outline"
->>>>>>> 364de65 (test)
                             disabled={pending}
                             onClick={() => runAction(() => removeWorkspaceMember({ workspaceId: workspace.id, userId: membership.user.id }))}
                             className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
                           >
                             Remove
-<<<<<<< HEAD
-                          </button>
-                        ) : null}
-=======
                           </Button>
->>>>>>> 364de65 (test)
                       </div>
                     </div>
                   ))}

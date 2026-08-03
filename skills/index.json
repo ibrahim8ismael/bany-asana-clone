@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-08-03T12:23:02.512Z",
+  "version": 1,
+  "skillCount": 0,
+  "referenceCount": 0,
+  "availableCommands": [],
+  "environment": {
+    "noticeFilePresent": true,
+    "designContextFilePresent": true
+  },
+  "skills": [],
+  "references": []
+}

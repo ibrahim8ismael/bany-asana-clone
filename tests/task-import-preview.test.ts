@@ -13,3 +13,9 @@ test("previewTaskImport detects custom field candidates from non-standard CSV co
   const candidateHeaders = preview.customFieldCandidates.map((candidate) => candidate.header).sort()
   assert.deepEqual(candidateHeaders, ["Approved", "Sprint Name", "Story Points"])
 })
+
+test("previewTaskImport preserves Backlog as a real task status", () => {
+  const preview = previewTaskImport("title,status\nUnscheduled work,Backlog")
+
+  assert.equal(preview.previewRows[0]?.status, "backlog")
+})

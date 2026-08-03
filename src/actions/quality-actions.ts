@@ -12,8 +12,10 @@ import {
   getAccessibleTaskContext,
 } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
+import { deriveProjectCompletionStatus } from "@/lib/workflow"
 import {
   calculateGradeKpiScore,
+  buildQualityDecisionTaskUpdate,
   issueAffectsQualityScore,
   QUALITY_GRADE_CONFIG,
   QUALITY_GRADES,
@@ -159,11 +161,10 @@ async function syncProjectCompletion(projectId: string | null, actorId: string) 
   })
   if (!project) return
 
-  const nextStatus = project.tasks.length > 0 && project.tasks.every((task) => task.status === "complete")
-    ? "complete"
-    : project.status === "complete"
-      ? "in_progress"
-      : project.status
+  const nextStatus = deriveProjectCompletionStatus(
+    project.status,
+    project.tasks.map((task) => task.status)
+  )
   if (nextStatus === project.status) return
 
   await prisma.project.update({ where: { id: project.id }, data: { status: nextStatus } })
@@ -464,6 +465,16 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
     const outcome = gradeConfig.decision
     const now = new Date()
     const review = task.quality_reviews[0]
+    const taskDecisionUpdate = buildQualityDecisionTaskUpdate({
+      outcome,
+      now,
+      reworkDueDate,
+      firstAccountableGrade,
+      finalGrade: input.grade,
+      qualityScore: taskKpiScore,
+      reworkCount: nextReworkCount,
+      blockerCount: nextBlockerCount,
+    })
 
     await prisma.$transaction(async (tx) => {
       await tx.taskQualityReview.update({
@@ -489,29 +500,7 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
       })
       await tx.task.update({
         where: { id: task.id },
-        data: needsRework
-          ? {
-              status: "needs_rework",
-              quality_state: "needs_rework",
-              rework_due_date: reworkDueDate,
-              completed_at: null,
-              first_quality_grade: firstAccountableGrade,
-              quality_score: taskKpiScore,
-              rework_count: nextReworkCount,
-              quality_blocker_count: nextBlockerCount,
-            }
-          : {
-              status: "complete",
-              quality_state: outcome,
-              rework_due_date: null,
-              completed_at: now,
-              approved_at: now,
-              first_quality_grade: firstAccountableGrade,
-              final_quality_grade: input.grade,
-              quality_score: taskKpiScore,
-              rework_count: nextReworkCount,
-              quality_blocker_count: nextBlockerCount,
-            },
+        data: taskDecisionUpdate,
       })
     })
 

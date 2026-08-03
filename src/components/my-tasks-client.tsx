@@ -32,6 +32,7 @@ import {
 import { addDays, addWeeks, format, isFuture, isPast, isSameDay, isToday, startOfWeek, subWeeks } from "date-fns"
 import { updateTask, updateTaskPosition, createSection, deleteSection, createTask } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
+import { TASK_WORKFLOW_STAGES, validateManualTaskTransition } from "@/lib/workflow"
 
 const TaskDrawer = dynamic(() => import("./task-drawer"), { ssr: false })
 
@@ -137,14 +138,12 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
     }
 
     if (groupBy === "status") {
-      return [
-        { id: "backlog", name: "Backlog", color: "text-zinc-500", tasks: incomplete.filter(t => t.status === "backlog") },
-        { id: "incomplete", name: "To Do", color: "text-zinc-400", tasks: incomplete.filter(t => t.status === "incomplete") },
-        { id: "in_progress", name: "In Progress", color: "text-blue-400", tasks: incomplete.filter(t => t.status === "in_progress") },
-        { id: "submitted_for_review", name: "In Review", color: "text-amber-400", tasks: incomplete.filter(t => t.status === "submitted_for_review") },
-        { id: "needs_rework", name: "Needs Rework", color: "text-rose-400", tasks: incomplete.filter(t => t.status === "needs_rework") },
-        { id: "complete", name: "Done", color: "text-emerald-400", tasks: completed },
-      ]
+      return TASK_WORKFLOW_STAGES.map((stage) => ({
+        id: stage.id,
+        name: stage.label,
+        color: stage.textAccent,
+        tasks: stage.id === "complete" ? completed : incomplete.filter((task) => task.status === stage.id),
+      }))
     }
 
     if (groupBy === "dueDate") {
@@ -242,7 +241,14 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
       if (result.success && result.task) applyTaskUpdate(result.task)
     } else if (groupBy === "status") {
       const task = tasks.find((entry) => entry.id === draggableId)
-      if (task?.quality_required || ["submitted_for_review", "needs_rework"].includes(destination.droppableId)) return
+      if (!task) return
+      const transitionError = validateManualTaskTransition({
+        from: task.status,
+        to: destination.droppableId,
+        qualityRequired: Boolean(task.quality_required),
+        qualityState: task.quality_state || "not_required",
+      })
+      if (transitionError) return
       const newStatus = destination.droppableId
       const result = await updateTask(draggableId, { status: newStatus as any })
       if (result.success && result.task) applyTaskUpdate(result.task)

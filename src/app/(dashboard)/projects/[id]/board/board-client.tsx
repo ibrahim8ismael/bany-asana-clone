@@ -9,6 +9,7 @@ import { format, isPast, isToday } from "date-fns"
 import { MessageSquare, CheckSquare, Plus, X, Calendar } from "lucide-react"
 import { createSection, createTask, updateTaskPosition } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
+import { getTaskWorkflowLabel } from "@/lib/workflow"
 
 const TaskDrawer = dynamic(() => import("@/components/task-drawer"), { ssr: false })
 
@@ -178,7 +179,7 @@ export default function BoardClient({ project }: { project: any }) {
             <Plus className="h-3.5 w-3.5" />
             Add task
           </button>
-          <span className="hidden text-xs text-[#a1a1aa] sm:block font-medium">Drag tasks between sections to update progress</span>
+          <span className="hidden text-xs text-[#a1a1aa] sm:block font-medium">Drag tasks between sections to organize project work</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto custom-scrollbar">
         <div className="flex min-w-max items-start gap-4 pb-5">
@@ -236,7 +237,7 @@ export default function BoardClient({ project }: { project: any }) {
                             {/* Tags */}
                             {["submitted_for_review", "needs_rework"].includes(task.status) ? (
                               <span className={`inline-flex w-fit rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${task.status === "needs_rework" ? "bg-rose-500/20 text-rose-300" : "bg-amber-500/20 text-amber-300"}`}>
-                                {task.status.replace(/_/g, " ")}
+                                {getTaskWorkflowLabel(task.status)}
                               </span>
                             ) : null}
                             {task.tags?.length > 0 && (

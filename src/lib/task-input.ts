@@ -1,4 +1,4 @@
-const TASK_STATUSES = new Set(["incomplete", "in_progress", "complete"])
+import { isTaskWorkflowStage, type TaskWorkflowStageId } from "@/lib/workflow"
 const TASK_PRIORITIES = new Set(["high", "medium", "low"])
 const TASK_UPDATE_KEYS = new Set([
   "title",
@@ -15,7 +15,7 @@ const TASK_UPDATE_KEYS = new Set([
 export type TaskUpdateInput = {
   title?: string
   description_rich_text?: string | null
-  status?: "incomplete" | "in_progress" | "complete"
+  status?: TaskWorkflowStageId
   priority?: "high" | "medium" | "low" | null
   due_date?: Date | string | null
   assignee_id?: string | null
@@ -63,7 +63,7 @@ export function parseTaskUpdateInput(input: unknown): TaskUpdateParseResult {
   }
 
   if (hasOwn(record, "status")) {
-    if (typeof record.status !== "string" || !TASK_STATUSES.has(record.status)) {
+    if (!isTaskWorkflowStage(record.status)) {
       return { success: false, error: "Invalid task status" }
     }
     data.status = record.status as TaskUpdateInput["status"]

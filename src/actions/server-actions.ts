@@ -19,6 +19,15 @@ import {
 import { prisma } from "@/lib/prisma"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
 import { parseTaskUpdateInput } from "@/lib/task-input"
+import { resolveTaskPlacement } from "@/lib/task-placement"
+import { buildProjectCreateData, DEFAULT_PROJECT_SECTION } from "@/lib/project-creation"
+import {
+  deriveProjectCompletionStatus,
+  isProjectStatus,
+  isTaskWorkflowStage,
+  type TaskWorkflowStageId,
+  validateManualTaskTransition,
+} from "@/lib/workflow"
 
 const taskInclude = {
   assignee: { select: USER_PUBLIC_SELECT },
@@ -347,17 +356,10 @@ async function syncProjectCompletionState(projectId: string, actorId?: string | 
 
   if (!project) return null
 
-  let nextStatus = project.status
-
-  if (project.tasks.length === 0) {
-    if (project.status === "complete") {
-      nextStatus = "incomplete"
-    }
-  } else if (project.tasks.every((task) => task.status === "complete")) {
-    nextStatus = "complete"
-  } else if (project.status === "complete") {
-    nextStatus = "in_progress"
-  }
+  const nextStatus = deriveProjectCompletionStatus(
+    project.status,
+    project.tasks.map((task) => task.status)
+  )
 
   if (nextStatus === project.status) {
     return { project, changed: false as const }
@@ -465,6 +467,7 @@ export async function updateTaskPosition(
 
 export async function createTask(data: {
   title: string
+  status?: TaskWorkflowStageId
   section_id?: string
   project_id?: string
   client_id?: string
@@ -475,6 +478,12 @@ export async function createTask(data: {
   try {
     const userId = await getSessionUserId()
     if (!userId) return { error: "Unauthorized" }
+    if (!data.title?.trim() || data.title.trim().length > 500) {
+      return { error: "Task title must be between 1 and 500 characters" }
+    }
+    if (data.status !== undefined && !isTaskWorkflowStage(data.status)) {
+      return { error: "Unsupported task workflow stage" }
+    }
 
     const [projectContext, sectionContext, clientContext] = await Promise.all([
       data.project_id ? getAccessibleProjectContext(userId, data.project_id, "edit") : Promise.resolve(null),
@@ -487,31 +496,18 @@ export async function createTask(data: {
     if (data.client_id && !clientContext) return { error: "Not found" }
     if (clientContext?.archived) return { error: "Restore this client before adding new work" }
 
-    if (projectContext && clientContext && projectContext.client_id !== clientContext.id) {
-      return { error: "Project does not belong to that client" }
-    }
-
-    if (projectContext && sectionContext && sectionContext.project_id !== projectContext.id) {
-      return { error: "Section does not belong to that project" }
-    }
-
-    if (projectContext && sectionContext?.user_id) {
-      return { error: "Project tasks cannot use personal sections" }
-    }
-
-    if (!projectContext && clientContext && sectionContext) {
-      return { error: "Direct client tasks cannot use sections" }
-    }
-
-    const resolvedProjectId = projectContext?.id || sectionContext?.project_id || null
-    const resolvedClientId = projectContext?.client_id || sectionContext?.project?.client_id || clientContext?.id || null
-    const entityWorkspaceId = projectContext?.workspace_id || sectionContext?.project?.workspace_id || clientContext?.workspace_id || null
-    const resolvedWorkspaceId = entityWorkspaceId || (await getActiveWorkspaceForUser(userId))?.id || null
-
-    if (!resolvedWorkspaceId) return { error: "No workspace found" }
-    if (data.workspace_id && data.workspace_id !== resolvedWorkspaceId) {
-      return { error: "Workspace does not match task context" }
-    }
+    const fallbackWorkspaceId = (await getActiveWorkspaceForUser(userId))?.id || null
+    const placement = resolveTaskPlacement({
+      project: projectContext,
+      client: clientContext,
+      section: sectionContext,
+      fallbackWorkspaceId,
+      requestedWorkspaceId: data.workspace_id,
+    })
+    if (!placement.success) return { error: placement.error }
+    const resolvedProjectId = placement.projectId
+    const resolvedClientId = placement.clientId
+    const resolvedWorkspaceId = placement.workspaceId
 
     const workspaceAllowed = await canAccessWorkspace(userId, resolvedWorkspaceId, "write")
     if (!workspaceAllowed) return { error: "Not found" }
@@ -524,8 +520,17 @@ export async function createTask(data: {
     const projectQualityPolicy = resolvedProjectId
       ? await prisma.project.findUnique({ where: { id: resolvedProjectId }, select: { quality_policy: true } })
       : null
+    const qualityRequired = projectQualityPolicy?.quality_policy === "required"
+    const status = data.status || "incomplete"
+    const transitionError = validateManualTaskTransition({
+      from: "incomplete",
+      to: status,
+      qualityRequired,
+      qualityState: qualityRequired ? "ready" : "not_required",
+    })
+    if (status !== "incomplete" && transitionError) return { error: transitionError }
 
-    let resolvedSectionId = data.section_id
+    let resolvedSectionId = placement.sectionId || undefined
     if (!resolvedProjectId && resolvedClientId) {
       resolvedSectionId = undefined
     }
@@ -565,16 +570,17 @@ export async function createTask(data: {
 
     const task = await prisma.task.create({
       data: {
-        title: data.title,
+        title: data.title.trim(),
         project_id: resolvedProjectId,
         client_id: resolvedClientId,
         section_id: resolvedSectionId || null,
         workspace_id: resolvedWorkspaceId,
         assignee_id: data.assignee_id,
         creator_id: userId,
-        status: "incomplete",
-        quality_required: projectQualityPolicy?.quality_policy === "required",
-        quality_state: projectQualityPolicy?.quality_policy === "required" ? "ready" : "not_required",
+        status,
+        completed_at: status === "complete" ? new Date() : null,
+        quality_required: qualityRequired,
+        quality_state: qualityRequired ? "ready" : "not_required",
         position: data.position ?? newPosition,
       },
       include: taskInclude,
@@ -786,39 +792,36 @@ export async function createProject(data: {
     if (clientContext.archived) return { error: "Restore this client before adding a project" }
 
     const workspaceId = clientContext.workspace_id
+    if (data.workspace_id && data.workspace_id !== workspaceId) {
+      return { error: "Client does not belong to that workspace" }
+    }
+    if (!data.name?.trim() || data.name.trim().length > 500) {
+      return { error: "Project name must be between 1 and 500 characters" }
+    }
+    if (!["list", "board", "calendar", "timeline"].includes(data.default_view)) {
+      return { error: "Invalid default project view" }
+    }
 
     const allowedWorkspace = await canAccessWorkspace(userId, workspaceId, "write")
     if (!allowedWorkspace) return { error: "Not found" }
 
     const { project, sections } = await prisma.$transaction(async (tx) => {
       const createdProject = await tx.project.create({
-        data: {
+        data: buildProjectCreateData({
           name: data.name,
-          description: data.description || "",
-          deadline: normalizeDueDate(data.deadline),
-          status: "incomplete",
-          default_view: data.default_view,
-          workspace_id: workspaceId,
-          client_id: clientContext.id,
-          owner_id: userId,
-          icon: "project",
-          color: data.color || "#6366f1",
-          privacy: "workspace_visible",
-          members: {
-            create: {
-              user_id: userId,
-              role: "owner",
-            },
-          },
-        },
+          description: data.description,
+          deadline: normalizeDueDate(data.deadline) ?? null,
+          defaultView: data.default_view,
+          workspaceId,
+          clientId: clientContext.id,
+          ownerId: userId,
+          color: data.color,
+        }),
       })
 
-      await tx.section.createMany({
-        data: [
-          { name: "To Do", position: 1000, project_id: createdProject.id },
-          { name: "In Progress", position: 2000, project_id: createdProject.id },
-          { name: "Done", position: 3000, project_id: createdProject.id },
-        ],
+      // Sections organize work inside a project. Task workflow is represented by Task.status.
+      await tx.section.create({
+        data: { ...DEFAULT_PROJECT_SECTION, project_id: createdProject.id },
       })
 
       const createdSections = await tx.section.findMany({
@@ -857,6 +860,8 @@ export async function updateProject(
     description?: string | null
     deadline?: Date | string | null
     status?: string
+    color?: string | null
+    default_view?: string
   }
 ) {
   try {
@@ -869,16 +874,29 @@ export async function updateProject(
     const beforeProject = await getProjectHistorySnapshot(projectId)
     if (!beforeProject) return { error: "Not found" }
 
-    if (data.status === "complete") {
-      const incompleteTasks = await prisma.task.count({
-        where: {
-          project_id: projectId,
-          archived: false,
-          status: { not: "complete" },
-        },
-      })
+    if (data.status !== undefined && !isProjectStatus(data.status)) {
+      return { error: "Invalid project status" }
+    }
+    if (data.default_view !== undefined && !["list", "board", "calendar", "timeline"].includes(data.default_view)) {
+      return { error: "Invalid default project view" }
+    }
+    if (data.color !== undefined && data.color !== null && !/^#[0-9a-f]{6}$/i.test(data.color)) {
+      return { error: "Invalid project color" }
+    }
 
-      if (incompleteTasks > 0) {
+    if (data.status === "complete") {
+      const [taskCount, incompleteTasks] = await prisma.$transaction([
+        prisma.task.count({ where: { project_id: projectId, archived: false } }),
+        prisma.task.count({
+          where: {
+            project_id: projectId,
+            archived: false,
+            status: { not: "complete" },
+          },
+        }),
+      ])
+
+      if (taskCount === 0 || incompleteTasks > 0) {
         return { error: "Project completes automatically when all tasks are done" }
       }
     }
@@ -900,6 +918,12 @@ export async function updateProject(
 
     if (data.status !== undefined) {
       updateData.status = data.status
+    }
+    if (data.color !== undefined) {
+      updateData.color = data.color
+    }
+    if (data.default_view !== undefined) {
+      updateData.default_view = data.default_view
     }
 
     const updatedProject = await prisma.project.update({
@@ -944,6 +968,51 @@ export async function updateProject(
   } catch (error: unknown) {
     console.error("Failed to update project:", error)
     return { error: getErrorMessage(error) || "Failed to update project" }
+  }
+}
+
+export async function deleteProject(projectId: string) {
+  try {
+    const userId = await getSessionUserId()
+    if (!userId) return { error: "Unauthorized" }
+
+    const projectContext = await getAccessibleProjectContext(userId, projectId, "manage")
+    if (!projectContext) return { error: "Not found" }
+
+    const project = await prisma.project.findUnique({
+      where: { id: projectContext.id },
+      select: { id: true, name: true, workspace_id: true, client_id: true },
+    })
+    if (!project) return { error: "Not found" }
+
+    const deletedTasks = await prisma.$transaction(async (tx) => {
+      const taskCount = await tx.task.count({ where: { project_id: project.id } })
+      await tx.task.deleteMany({ where: { project_id: project.id } })
+      await tx.project.delete({ where: { id: project.id } })
+      return taskCount
+    })
+
+    await logActivity({
+      workspaceId: project.workspace_id,
+      actorId: userId,
+      entityType: "project",
+      entityId: project.id,
+      action: "project_deleted",
+      meta: {
+        source: "manual",
+        projectId: project.id,
+        projectName: project.name,
+        clientId: project.client_id,
+        deletedTasks,
+      },
+    })
+
+    revalidateMany(getClientPageRevalidationPaths())
+    revalidatePath("/reporting")
+    return { success: true, deletedProjectId: project.id, deletedTasks }
+  } catch (error: unknown) {
+    console.error("Failed to delete project:", error)
+    return { error: getErrorMessage(error) || "Failed to delete project" }
   }
 }
 
@@ -1146,8 +1215,11 @@ export async function convertDirectTaskToProject(
     const projectName = options?.projectName?.trim() || taskRecord.title.trim() || "Converted Project"
     const defaultView = options?.default_view || "list"
     const projectColor = options?.color || taskRecord.client?.color || "#6366f1"
+    if (!["list", "board", "calendar", "timeline"].includes(defaultView)) {
+      return { error: "Invalid default project view" }
+    }
 
-    const { project, todoSection, updatedTask, sections } = await prisma.$transaction(async (tx) => {
+    const { project, generalSection, updatedTask, sections } = await prisma.$transaction(async (tx) => {
       const createdProject = await tx.project.create({
         data: {
           workspace_id: taskRecord.workspace_id,
@@ -1169,19 +1241,12 @@ export async function convertDirectTaskToProject(
         },
       })
 
-      const createdTodoSection = await tx.section.create({
+      const createdGeneralSection = await tx.section.create({
         data: {
-          name: "To Do",
+          name: "General",
           position: 1000,
           project_id: createdProject.id,
         },
-      })
-
-      await tx.section.createMany({
-        data: [
-          { name: "In Progress", position: 2000, project_id: createdProject.id },
-          { name: "Done", position: 3000, project_id: createdProject.id },
-        ],
       })
 
       const createdSections = await tx.section.findMany({
@@ -1195,7 +1260,7 @@ export async function convertDirectTaskToProject(
         data: {
           project_id: createdProject.id,
           client_id: clientContext.id,
-          section_id: createdTodoSection.id,
+          section_id: createdGeneralSection.id,
           position: 1000,
         },
         include: taskInclude,
@@ -1206,13 +1271,13 @@ export async function convertDirectTaskToProject(
         data: {
           project_id: createdProject.id,
           client_id: clientContext.id,
-          section_id: createdTodoSection.id,
+          section_id: createdGeneralSection.id,
         },
       })
 
       return {
         project: createdProject,
-        todoSection: createdTodoSection,
+        generalSection: createdGeneralSection,
         updatedTask: nextTask,
         sections: createdSections,
       }
@@ -1250,7 +1315,7 @@ export async function convertDirectTaskToProject(
         meta: {
           source: "manual",
           from: beforeSnapshot.section?.name || null,
-          to: todoSection.name,
+          to: generalSection.name,
         },
       },
       {
@@ -1401,9 +1466,16 @@ export async function updateTask(
     const effectiveQualityRequired = qualityWorkflow.quality_required
       || qualityWorkflow.quality_policy_override === "required"
       || (!qualityWorkflow.quality_policy_override && qualityWorkflow.project?.quality_policy === "required")
+      || qualityWorkflow.quality_state !== "not_required"
 
-    if (data.status !== undefined && effectiveQualityRequired && data.status !== qualityWorkflow.status) {
-      return { error: "Use the quality review workflow to change this task's status" }
+    if (data.status !== undefined && data.status !== qualityWorkflow.status) {
+      const transitionError = validateManualTaskTransition({
+        from: qualityWorkflow.status,
+        to: data.status,
+        qualityRequired: effectiveQualityRequired,
+        qualityState: qualityWorkflow.quality_state,
+      })
+      if (transitionError) return { error: transitionError }
     }
 
     if (data.assignee_id && data.assignee_id === qualityWorkflow.reviewer_id) {
@@ -1446,6 +1518,9 @@ export async function updateTask(
 
     if (nextProjectContext && nextClientContext && nextProjectContext.client_id !== nextClientContext.id) {
       return { error: "Project does not belong to that client" }
+    }
+    if (nextSectionContext?.project && nextClientContext && nextSectionContext.project.client_id !== nextClientContext.id) {
+      return { error: "Section's project does not belong to that client" }
     }
 
     const resolvedProjectId = nextProjectContext?.id || nextSectionContext?.project_id || null
@@ -1509,6 +1584,8 @@ export async function updateTask(
 
     if (data.section_id === null) {
       updateData.section_id = null
+    } else if (nextSectionContext) {
+      updateData.section_id = nextSectionContext.id
     }
 
     if (!resolvedProjectId && !resolvedClientId && data.section_id === undefined && (data.project_id !== undefined || data.client_id !== undefined)) {

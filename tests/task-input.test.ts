@@ -40,3 +40,10 @@ test("parseTaskUpdateInput rejects invalid status and dates", () => {
   assert.equal(parseTaskUpdateInput({ due_date: "not-a-date" }).success, false)
   assert.equal(parseTaskUpdateInput({ title: "   " }).success, false)
 })
+
+test("parseTaskUpdateInput accepts every canonical persisted workflow status", () => {
+  for (const status of ["backlog", "incomplete", "in_progress", "submitted_for_review", "needs_rework", "complete"]) {
+    const result = parseTaskUpdateInput({ status })
+    assert.equal(result.success, true, `${status} should be accepted by structural validation`)
+  }
+})
