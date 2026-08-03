@@ -19,15 +19,16 @@ export async function isSuperAdminUser(userId: string) {
   return Boolean(user?.is_super_admin)
 }
 
-const WORKSPACE_VIEW_ROLES = ["owner", "admin", "member", "guest"] as const
-const WORKSPACE_WRITE_ROLES = ["owner", "admin", "member"] as const
-const WORKSPACE_ADMIN_ROLES = ["owner", "admin"] as const
+// RBAC Simplified Roles
+const WORKSPACE_VIEW_ROLES = ["admin", "user"] as const
+const WORKSPACE_WRITE_ROLES = ["admin", "user"] as const
+const WORKSPACE_ADMIN_ROLES = ["admin"] as const
 
-const PROJECT_VIEW_ROLES = ["owner", "admin", "editor", "commenter", "viewer"] as const
-const PROJECT_COMMENT_ROLES = ["owner", "admin", "editor", "commenter"] as const
-const PROJECT_EDIT_ROLES = ["owner", "admin", "editor"] as const
-const PROJECT_MANAGE_ROLES = ["owner", "admin"] as const
-const TEAM_VIEW_ROLES = ["owner", "member"] as const
+const PROJECT_VIEW_ROLES = ["admin", "user"] as const
+const PROJECT_COMMENT_ROLES = ["admin", "user"] as const
+const PROJECT_EDIT_ROLES = ["admin", "user"] as const
+const PROJECT_MANAGE_ROLES = ["admin"] as const
+const TEAM_VIEW_ROLES = ["admin", "user"] as const
 
 function workspaceRolesFor(level: WorkspaceAccessLevel) {
   switch (level) {

@@ -83,7 +83,7 @@ export async function POST(req: Request) {
         data: {
           workspace_id: workspace.id,
           user_id: createdUser.id,
-          role: "owner",
+          role: "admin",
         },
       })
 

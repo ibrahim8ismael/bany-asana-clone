@@ -32,14 +32,10 @@ export type ProjectMemberManagementData = {
 
 function roleClasses(role: string) {
   switch (role) {
-    case "owner":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-200"
     case "admin":
       return "border-blue-500/20 bg-blue-500/10 text-blue-200"
-    case "editor":
+    case "user":
       return "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
-    case "commenter":
-      return "border-violet-500/20 bg-violet-500/10 text-violet-200"
     default:
       return "border-white/10 bg-white/5 text-white/55"
   }
@@ -64,7 +60,7 @@ export default function ProjectMembersManager({
   const [message, setMessage] = useState("")
   const [pending, startTransition] = useTransition()
   const [selectedUserId, setSelectedUserId] = useState("")
-  const [selectedRole, setSelectedRole] = useState<"admin" | "editor" | "commenter" | "viewer">("viewer")
+  const [selectedRole, setSelectedRole] = useState<"admin" | "user">("user")
   const [localMembers, setLocalMembers] = useState(members)
   const [localWorkspaceMembers, setLocalWorkspaceMembers] = useState(workspaceMembers)
   const [localCanManage, setLocalCanManage] = useState(canManage)
@@ -147,7 +143,7 @@ export default function ProjectMembersManager({
                 {member.role}
               </span>
 
-              {localCanManage && member.role !== "owner" ? (
+              {localCanManage ? (
                 <>
                   <select
                     title="Update project role"
@@ -158,16 +154,14 @@ export default function ProjectMembersManager({
                         updateProjectMemberRole({
                           projectId,
                           userId: member.user.id,
-                          role: event.target.value as "admin" | "editor" | "commenter" | "viewer",
+                          role: event.target.value as "admin" | "user",
                         })
                       )
                     }
                     className={compact ? "h-9 rounded-xl border border-white/10 bg-[#17181a] px-3 text-xs text-white/80 outline-none" : "rounded-lg border border-white/10 bg-[#1f2022] px-3 py-2 text-xs text-white/80 outline-none"}
                   >
                     <option value="admin">Admin</option>
-                    <option value="editor">Editor</option>
-                    <option value="commenter">Commenter</option>
-                    <option value="viewer">Viewer</option>
+                    <option value="user">User</option>
                   </select>
 
                   <Button
@@ -216,13 +210,11 @@ export default function ProjectMembersManager({
                 <select
                   title="Select project role"
                   value={selectedRole}
-                  onChange={(event) => setSelectedRole(event.target.value as "admin" | "editor" | "commenter" | "viewer")}
+                  onChange={(event) => setSelectedRole(event.target.value as "admin" | "user")}
                   className={compact ? "h-9 min-w-[160px] rounded-xl border border-white/10 bg-[#262729] px-3 text-sm text-white/80 outline-none" : "h-10 min-w-[180px] rounded-lg border border-white/10 bg-[#262729] px-3 text-sm text-white/80 outline-none"}
                 >
                   <option value="admin">Admin</option>
-                  <option value="editor">Editor</option>
-                  <option value="commenter">Commenter</option>
-                  <option value="viewer">Viewer</option>
+                  <option value="user">User</option>
                 </select>
 
                 <Button

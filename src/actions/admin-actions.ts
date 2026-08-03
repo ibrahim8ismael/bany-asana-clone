@@ -21,7 +21,7 @@ async function requireSuperAdmin() {
   return userId
 }
 
-const WORKSPACE_MEMBER_ROLES = ["admin", "member", "guest"] as const
+const WORKSPACE_MEMBER_ROLES = ["admin", "user"] as const
 type WorkspaceMemberRole = (typeof WORKSPACE_MEMBER_ROLES)[number]
 
 function isWorkspaceMemberRole(value: unknown): value is WorkspaceMemberRole {
@@ -52,11 +52,11 @@ async function getWorkspaceAdminContext(workspaceId: unknown) {
 
   if (!workspace) return { error: "Workspace not found" } as const
   const role = workspace.members[0]?.role
-  if (!superAdmin && workspace.owner_id !== userId && role !== "owner" && role !== "admin") {
+  if (!superAdmin && workspace.owner_id !== userId && role !== "admin") {
     return { error: "Workspace admin access required" } as const
   }
 
-  return { userId, workspace } as const
+  return { userId, workspace, superAdmin } as const
 }
 
 async function notifyUser(userId: string, title: string, body: string, entityId: string) {
@@ -174,7 +174,7 @@ export async function reviewSuperAdminRequest(data: { requestId: string; decisio
           select: { id: true, role: true },
         })
 
-        if (membership && membership.role !== "owner" && membership.role !== "admin") {
+        if (membership && membership.role !== "admin") {
           await tx.workspaceMember.update({
             where: { id: membership.id },
             data: { role: "admin" },
@@ -199,13 +199,31 @@ export async function reviewSuperAdminRequest(data: { requestId: string; decisio
   return { success: true }
 }
 
+export async function revokeSuperAdmin(data: { userId: string }) {
+  const currentUserId = await requireSuperAdmin()
+  
+  if (currentUserId === data.userId) {
+    return { error: "You cannot revoke your own super admin status" }
+  }
+
+  await prisma.user.update({
+    where: { id: data.userId },
+    data: { is_super_admin: false },
+  })
+
+  revalidatePath("/account")
+  revalidatePath("/admin/members")
+  revalidatePath("/", "layout")
+  return { success: true }
+}
+
 export async function updateWorkspaceMemberRole(data: { workspaceId: string; userId: string; role: string }) {
   if (!isWorkspaceMemberRole(data?.role)) return { error: "Invalid workspace role" }
   const authorization = await getWorkspaceAdminContext(data?.workspaceId)
   if ("error" in authorization) return authorization
-  const { workspace } = authorization
+  const { workspace, superAdmin } = authorization
 
-  if (workspace.owner_id === data.userId) return { error: "Workspace owner role cannot be changed" }
+  if (!superAdmin && workspace.owner_id === data.userId) return { error: "Workspace owner role cannot be changed" }
 
   const membership = await prisma.workspaceMember.findFirst({
     where: { workspace_id: data.workspaceId, user_id: data.userId },
@@ -213,7 +231,6 @@ export async function updateWorkspaceMemberRole(data: { workspaceId: string; use
   })
 
   if (!membership) return { error: "Membership not found" }
-  if (membership.role === "owner") return { error: "Workspace owner role cannot be changed" }
 
   await prisma.workspaceMember.update({
     where: { id: membership.id },
@@ -231,9 +248,9 @@ export async function updateWorkspaceMemberRole(data: { workspaceId: string; use
 export async function removeWorkspaceMember(data: { workspaceId: string; userId: string }) {
   const authorization = await getWorkspaceAdminContext(data?.workspaceId)
   if ("error" in authorization) return authorization
-  const { workspace } = authorization
+  const { workspace, superAdmin } = authorization
 
-  if (workspace.owner_id === data.userId) return { error: "Workspace owner cannot be removed" }
+  if (!superAdmin && workspace.owner_id === data.userId) return { error: "Workspace owner cannot be removed" }
 
   const membership = await prisma.workspaceMember.findFirst({
     where: { workspace_id: data.workspaceId, user_id: data.userId },
@@ -241,7 +258,6 @@ export async function removeWorkspaceMember(data: { workspaceId: string; userId:
   })
 
   if (!membership) return { error: "Membership not found" }
-  if (membership.role === "owner") return { error: "Workspace owner cannot be removed" }
 
   await prisma.$transaction(async (tx) => {
     const ownedProjects = await tx.project.findMany({
@@ -266,9 +282,9 @@ export async function removeWorkspaceMember(data: { workspaceId: string; userId:
           create: {
             project_id: project.id,
             user_id: workspace.owner_id,
-            role: "owner",
+            role: "admin",
           },
-          update: { role: "owner" },
+          update: { role: "admin" },
         })
       }
     }

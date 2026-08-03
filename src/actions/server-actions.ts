@@ -56,7 +56,7 @@ type ProjectHistorySnapshot = {
   default_view: string
 }
 
-const PROJECT_MANAGEABLE_ROLES = ["admin", "editor", "commenter", "viewer"] as const
+const PROJECT_MANAGEABLE_ROLES = ["admin", "user"] as const
 
 function isManageableProjectRole(role: string): role is (typeof PROJECT_MANAGEABLE_ROLES)[number] {
   return PROJECT_MANAGEABLE_ROLES.includes(role as (typeof PROJECT_MANAGEABLE_ROLES)[number])
@@ -950,7 +950,7 @@ export async function updateProject(
 export async function addProjectMember(data: {
   projectId: string
   userId: string
-  role: "admin" | "editor" | "commenter" | "viewer"
+  role: "admin" | "user"
 }) {
   try {
     const actorId = await getSessionUserId()
@@ -1008,7 +1008,7 @@ export async function addProjectMember(data: {
 export async function updateProjectMemberRole(data: {
   projectId: string
   userId: string
-  role: "admin" | "editor" | "commenter" | "viewer"
+  role: "admin" | "user"
 }) {
   try {
     const actorId = await getSessionUserId()
