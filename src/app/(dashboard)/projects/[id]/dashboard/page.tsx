@@ -3,6 +3,8 @@ import { redirect } from "next/navigation"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { projectAccessWhere } from "@/lib/permissions"
+import ProjectAccessDenied from "@/components/project-access-denied"
+import { notFound } from "next/navigation"
 
 export default async function ProjectDashboardRedirectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -16,7 +18,13 @@ export default async function ProjectDashboardRedirectPage({ params }: { params:
   })
 
   if (!project) {
-    redirect("/clients")
+    if (id !== "demo") {
+      const existingProject = await prisma.project.findUnique({ where: { id } })
+      if (existingProject) {
+        return <ProjectAccessDenied projectId={id} projectName={existingProject.name} />
+      }
+    }
+    return notFound()
   }
 
   redirect(project.client_id ? `/clients?clientId=${project.client_id}` : `/projects/${project.id}/overview`)

@@ -20,7 +20,7 @@ import { prisma } from "@/lib/prisma"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
 import { parseTaskUpdateInput } from "@/lib/task-input"
 import { resolveTaskPlacement } from "@/lib/task-placement"
-import { buildProjectCreateData, DEFAULT_PROJECT_SECTION } from "@/lib/project-creation"
+import { buildProjectCreateData, DEFAULT_PROJECT_SECTIONS } from "@/lib/project-creation"
 import {
   deriveProjectCompletionStatus,
   isProjectStatus,
@@ -820,8 +820,11 @@ export async function createProject(data: {
       })
 
       // Sections organize work inside a project. Task workflow is represented by Task.status.
-      await tx.section.create({
-        data: { ...DEFAULT_PROJECT_SECTION, project_id: createdProject.id },
+      await tx.section.createMany({
+        data: DEFAULT_PROJECT_SECTIONS.map(section => ({
+          ...section,
+          project_id: createdProject.id,
+        })),
       })
 
       const createdSections = await tx.section.findMany({

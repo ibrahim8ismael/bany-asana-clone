@@ -1,7 +1,11 @@
-export const DEFAULT_PROJECT_SECTION = {
-  name: "General",
-  position: 1000,
-} as const
+export const DEFAULT_PROJECT_SECTIONS = [
+  { name: "Backlog", position: 1000 },
+  { name: "To Do", position: 2000 },
+  { name: "In Progress", position: 3000 },
+  { name: "In Review", position: 4000 },
+  { name: "Needs Rework", position: 5000 },
+  { name: "Done", position: 6000 },
+] as const
 
 export function buildProjectCreateData(input: {
   name: string
