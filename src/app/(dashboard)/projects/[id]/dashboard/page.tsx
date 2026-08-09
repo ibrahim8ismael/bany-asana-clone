@@ -1,10 +1,9 @@
 import { getServerSession } from "next-auth"
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { projectAccessWhere } from "@/lib/permissions"
+import { isSuperAdminUser, projectAccessWhere } from "@/lib/permissions"
 import ProjectAccessDenied from "@/components/project-access-denied"
-import { notFound } from "next/navigation"
 
 export default async function ProjectDashboardRedirectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -12,8 +11,9 @@ export default async function ProjectDashboardRedirectPage({ params }: { params:
   const userId = (session?.user as { id?: string } | undefined)?.id
   if (!userId) redirect("/clients")
 
+  const isSuperAdmin = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
-    where: { id, ...projectAccessWhere(userId, "view") },
+    where: { id, ...projectAccessWhere(userId, "view", isSuperAdmin) },
     select: { id: true, client_id: true },
   })
 

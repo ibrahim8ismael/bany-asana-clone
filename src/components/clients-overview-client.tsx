@@ -131,6 +131,17 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
   const [savingProjectId, setSavingProjectId] = useState<string | null>(null)
   const [convertingTaskId, setConvertingTaskId] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!requestedClientId) return
+    const requestedClient = clients.find((client) => client.id === requestedClientId)
+    if (!requestedClient) return
+
+    setSelectedClientId(requestedClient.id)
+    setClientScope(requestedClient.archived ? "archived" : "active")
+    setSelectedProjectId(null)
+    setWorkScope(requestedClient.projects.length > 0 ? "project" : "direct")
+  }, [clients, requestedClientId])
+
   const visibleClients = useMemo(() => clients.filter((client) =>
     clientScope === "archived" ? Boolean(client.archived) : !client.archived
   ), [clientScope, clients])

@@ -549,6 +549,7 @@ export default function Sidebar({
                         </button>
                         <Link
                           href={directTasksHref}
+                          prefetch={false}
                           className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-xs text-[#f4f4f5] transition-colors hover:bg-[#27272a]"
                         >
                           <span
@@ -591,6 +592,7 @@ export default function Sidebar({
                             <li>
                               <Link
                                 href={directTasksHref}
+                                prefetch={false}
                                 className="flex items-center gap-2 rounded-md px-2 py-1 text-[11px] font-medium text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
                               >
                                 <Briefcase className="h-3 w-3 text-[#0075de]" />

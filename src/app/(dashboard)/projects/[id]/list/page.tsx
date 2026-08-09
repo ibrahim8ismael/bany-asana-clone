@@ -18,10 +18,11 @@ export default async function ListPage({ params }: { params: Promise<{ id: strin
   const userId = (session.user as { id?: string } | undefined)?.id
   if (!userId) return notFound()
 
+  const canImport = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
     where: id !== "demo"
-      ? { id, ...projectAccessWhere(userId) }
-      : { default_view: "list", ...projectAccessWhere(userId) },
+      ? { id, ...projectAccessWhere(userId, "view", canImport) }
+      : { default_view: "list", ...projectAccessWhere(userId, "view", canImport) },
     include: {
       sections: {
         orderBy: { position: 'asc' },
@@ -52,8 +53,6 @@ export default async function ListPage({ params }: { params: Promise<{ id: strin
     }
     return notFound()
   }
-  const canImport = await isSuperAdminUser(userId)
-
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#1e1f21]">
       <div className="flex min-h-20 shrink-0 items-center justify-between gap-2 border-b border-[#414245] px-3 py-3 sm:gap-4 sm:px-7">

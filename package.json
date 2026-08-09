@@ -17,6 +17,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:import:asana": "tsx scripts/import-asana-package.ts",
+    "db:import:asana-jsonl": "tsx scripts/import-asana-jsonl.ts",
+    "db:repair:asana-jsonl-ownership": "tsx scripts/repair-asana-jsonl-ownership.ts",
     "skills:build": "node scripts/build-skills-manifest.mjs"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { taskAccessWhere } from "../src/lib/permissions"
+import { projectAccessWhere, taskAccessWhere, workspaceAccessWhere } from "../src/lib/permissions"
 
 test("taskAccessWhere keeps project, direct-client, and personal access distinct", () => {
   const where = taskAccessWhere("user-1", "view")
@@ -42,4 +42,16 @@ test("quality reviewer access is read-only", () => {
   const where = taskAccessWhere("reviewer", "edit")
   assert.ok(Array.isArray(where.OR))
   assert.equal(where.OR.some((rule) => "reviewer_id" in rule), false)
+})
+
+test("Super Admin predicates grant global access at every resource layer", () => {
+  assert.deepEqual(workspaceAccessWhere("super-admin", "admin", true), {})
+  assert.deepEqual(projectAccessWhere("super-admin", "manage", true), {})
+  assert.deepEqual(taskAccessWhere("super-admin", "manage", true), {})
+})
+
+test("normal users retain scoped workspace and project access", () => {
+  assert.notDeepEqual(workspaceAccessWhere("user-1", "view"), {})
+  assert.notDeepEqual(projectAccessWhere("user-1", "view"), {})
+  assert.notDeepEqual(taskAccessWhere("user-1", "view"), {})
 })

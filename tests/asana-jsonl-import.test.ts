@@ -304,8 +304,8 @@ describe("Asana JSONL Import — Core Rules", () => {
     }
     assert.equal(attachment.file_url_available, "false")
     // Import skips this — no Attachment record created
-    const shouldCreateAttachment = attachment.file_url_available === "true"
-    assert.equal(shouldCreateAttachment, false)
+    const shouldCreateAttachment = (fileUrlAvailable: string) => fileUrlAvailable === "true"
+    assert.equal(shouldCreateAttachment(attachment.file_url_available), false)
   })
 
   // Test 17: Import fails safely with invalid workspace
