@@ -5,8 +5,13 @@ import MyTasksClient from "@/components/my-tasks-client"
 import { getActiveWorkspaceForUser, isSuperAdminUser, taskAccessWhere } from "@/lib/permissions"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
 
-export default async function MyTasksPage() {
+export default async function MyTasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ taskId?: string }>
+}) {
   const session = await getServerSession(authOptions)
+  const { taskId: requestedTaskId } = await searchParams
   const userId = (session?.user as { id?: string } | undefined)?.id
 
   if (!userId) {
@@ -17,12 +22,15 @@ export default async function MyTasksPage() {
     )
   }
 
-  const activeWorkspace = await getActiveWorkspaceForUser(userId)
+  const [activeWorkspace, superAdmin] = await Promise.all([
+    getActiveWorkspaceForUser(userId),
+    isSuperAdminUser(userId),
+  ])
 
   const tasks = activeWorkspace ? await prisma.task.findMany({
     where: {
       AND: [
-        taskAccessWhere(userId, "view"),
+        taskAccessWhere(userId, "view", superAdmin),
         { workspace_id: activeWorkspace.id },
         {
           OR: [
@@ -46,10 +54,41 @@ export default async function MyTasksPage() {
     orderBy: { created_at: "desc" },
   }) : []
 
+  // Global search links unassigned tasks here. Keep the normal page personal,
+  // but load an explicitly requested task when the caller is authorized.
+  if (
+    activeWorkspace &&
+    requestedTaskId &&
+    !tasks.some((task) => task.id === requestedTaskId)
+  ) {
+    const requestedTask = await prisma.task.findFirst({
+      where: {
+        id: requestedTaskId,
+        AND: [
+          taskAccessWhere(userId, "view", superAdmin),
+          { workspace_id: activeWorkspace.id },
+        ],
+      },
+      include: {
+        project: true,
+        client: true,
+        section: true,
+        assignee: { select: USER_PUBLIC_SELECT },
+        reviewer: { select: USER_PUBLIC_SELECT },
+        tags: { include: { tag: true } },
+        comments: { include: { author: { select: USER_PUBLIC_SELECT } } },
+        subtasks: true,
+        attachments: true,
+      },
+    })
+
+    if (requestedTask) tasks.unshift(requestedTask)
+  }
+
   const pendingReviewTasks = activeWorkspace ? await prisma.task.findMany({
     where: {
       AND: [
-        taskAccessWhere(userId, "view"),
+        taskAccessWhere(userId, "view", superAdmin),
         {
           workspace_id: activeWorkspace.id,
           archived: false,
@@ -80,7 +119,7 @@ export default async function MyTasksPage() {
   const reworkTasks = activeWorkspace ? await prisma.task.findMany({
     where: {
       AND: [
-        taskAccessWhere(userId, "view"),
+        taskAccessWhere(userId, "view", superAdmin),
         {
           workspace_id: activeWorkspace.id,
           archived: false,
@@ -119,7 +158,7 @@ export default async function MyTasksPage() {
       tasks: {
         where: {
           AND: [
-            taskAccessWhere(userId, "view"),
+            taskAccessWhere(userId, "view", superAdmin),
             { workspace_id: activeWorkspace.id },
             {
               OR: [
@@ -143,7 +182,7 @@ export default async function MyTasksPage() {
     }
   }) : []
 
-  const canImport = await isSuperAdminUser(userId)
+  const canImport = superAdmin
 
   return (
     <div className="h-full min-h-0 overflow-hidden bg-[#1e1f21]">

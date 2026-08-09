@@ -17,10 +17,11 @@ export default async function BoardPage({ params }: { params: Promise<{ id: stri
   const userId = (session.user as { id?: string } | undefined)?.id
   if (!userId) return null
 
+  const canImport = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
     where: id !== "demo"
-      ? { id, ...projectAccessWhere(userId) }
-      : { default_view: "board", ...projectAccessWhere(userId) },
+      ? { id, ...projectAccessWhere(userId, "view", canImport) }
+      : { default_view: "board", ...projectAccessWhere(userId, "view", canImport) },
     include: {
       sections: {
         orderBy: { position: 'asc' },
@@ -50,8 +51,6 @@ export default async function BoardPage({ params }: { params: Promise<{ id: stri
       </div>
     )
   }
-
-  const canImport = await isSuperAdminUser(userId)
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#1e1f21]">

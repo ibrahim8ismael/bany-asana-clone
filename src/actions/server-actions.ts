@@ -13,7 +13,9 @@ import {
   getAccessibleTaskContext,
   getActiveWorkspaceForUser,
   getDefaultWorkspaceForUser,
+  isSuperAdminUser,
   projectAccessWhere,
+  taskAccessWhere,
   workspaceAccessWhere,
 } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
@@ -1932,6 +1934,7 @@ export async function getProjectMemberManagement(projectId: string) {
   try {
     const userId = await getSessionUserId()
     if (!userId) return { canManage: false, members: [], workspaceMembers: [] }
+    const isSuperAdmin = await isSuperAdminUser(userId)
 
     const [projectContext, canManageProject, project] = await Promise.all([
       getAccessibleProjectContext(userId, projectId, "view"),
@@ -1939,7 +1942,7 @@ export async function getProjectMemberManagement(projectId: string) {
       prisma.project.findFirst({
         where: {
           id: projectId,
-          ...projectAccessWhere(userId, "view"),
+          ...projectAccessWhere(userId, "view", isSuperAdmin),
         },
         select: {
           members: {
@@ -2001,7 +2004,10 @@ export async function getUserProjects() {
   try {
     const userId = await getSessionUserId()
     if (!userId) return []
-    const activeWorkspace = await getActiveWorkspaceForUser(userId)
+    const [activeWorkspace, isSuperAdmin] = await Promise.all([
+      getActiveWorkspaceForUser(userId),
+      isSuperAdminUser(userId),
+    ])
     if (!activeWorkspace) return []
 
     return prisma.project.findMany({
@@ -2009,7 +2015,7 @@ export async function getUserProjects() {
         workspace_id: activeWorkspace.id,
         archived: false,
         AND: [
-          projectAccessWhere(userId, "view"),
+          projectAccessWhere(userId, "view", isSuperAdmin),
           {
             OR: [
               { client_id: null },
@@ -2037,14 +2043,17 @@ export async function getUserClients() {
   try {
     const userId = await getSessionUserId()
     if (!userId) return []
-    const activeWorkspace = await getActiveWorkspaceForUser(userId)
+    const [activeWorkspace, isSuperAdmin] = await Promise.all([
+      getActiveWorkspaceForUser(userId),
+      isSuperAdminUser(userId),
+    ])
     if (!activeWorkspace) return []
 
     return prisma.client.findMany({
       where: {
         workspace_id: activeWorkspace.id,
         archived: false,
-        workspace: workspaceAccessWhere(userId, "view"),
+        workspace: workspaceAccessWhere(userId, "view", isSuperAdmin),
       },
       select: {
         id: true,
@@ -2100,14 +2109,17 @@ export async function searchWorkspace(query: string) {
     const term = query.trim()
     if (!term) return { projects: [], tasks: [] }
 
-    const activeWorkspace = await getActiveWorkspaceForUser(userId)
+    const [activeWorkspace, isSuperAdmin] = await Promise.all([
+      getActiveWorkspaceForUser(userId),
+      isSuperAdminUser(userId),
+    ])
     if (!activeWorkspace) return { projects: [], tasks: [] }
 
     const [projects, tasks] = await Promise.all([
       prisma.project.findMany({
         where: {
           AND: [
-            projectAccessWhere(userId, "view"),
+            projectAccessWhere(userId, "view", isSuperAdmin),
             { workspace_id: activeWorkspace.id },
             { archived: false },
             {
@@ -2124,19 +2136,13 @@ export async function searchWorkspace(query: string) {
       }),
       prisma.task.findMany({
         where: {
-          workspace_id: activeWorkspace.id,
-          archived: false,
-          title: { contains: term },
-          OR: [
-            { project: { ...projectAccessWhere(userId, "view") } },
+          AND: [
+            taskAccessWhere(userId, "view", isSuperAdmin),
             {
-              project_id: null,
-              client: {
-                workspace: workspaceAccessWhere(userId, "view"),
-              },
+              workspace_id: activeWorkspace.id,
+              archived: false,
+              title: { contains: term },
             },
-            { project_id: null, client_id: null, assignee_id: userId },
-            { project_id: null, client_id: null, creator_id: userId },
           ],
         },
         select: {
@@ -2164,9 +2170,10 @@ export async function searchWorkspace(query: string) {
 export async function getAccessibleWorkspaceSummary() {
   const userId = await getSessionUserId()
   if (!userId) return []
+  const isSuperAdmin = await isSuperAdminUser(userId)
 
   return prisma.workspace.findMany({
-    where: workspaceAccessWhere(userId, "view"),
+    where: workspaceAccessWhere(userId, "view", isSuperAdmin),
     select: {
       id: true,
       name: true,

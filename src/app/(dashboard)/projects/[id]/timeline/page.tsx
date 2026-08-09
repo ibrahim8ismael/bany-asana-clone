@@ -14,7 +14,7 @@ import {
 import { ChevronLeft, ChevronRight, CalendarRange } from "lucide-react"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { projectAccessWhere } from "@/lib/permissions"
+import { isSuperAdminUser, projectAccessWhere } from "@/lib/permissions"
 import ProjectViewTabs from "@/components/project-view-tabs"
 import ShareButton from "@/components/share-button"
 
@@ -43,8 +43,9 @@ export default async function ProjectTimelinePage({
   const userId = (session?.user as { id?: string } | undefined)?.id
   if (!userId) return <div>Project not found</div>
 
+  const isSuperAdmin = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
-    where: { id, ...projectAccessWhere(userId, "view") },
+    where: { id, ...projectAccessWhere(userId, "view", isSuperAdmin) },
     include: { tasks: { orderBy: [{ start_date: "asc" }, { due_date: "asc" }, { created_at: "asc" }] } },
   })
 

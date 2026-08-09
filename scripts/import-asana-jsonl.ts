@@ -21,6 +21,10 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import readline from "node:readline"
 import { PrismaClient, type Prisma } from "@prisma/client"
+import {
+  deterministicMigrationId as deterministicId,
+  getJsonlImportActorIdentity,
+} from "../src/lib/asana-import-identity"
 
 const prisma = new PrismaClient()
 
@@ -128,15 +132,6 @@ function parseInteger(value: string | null | undefined): number | null {
 
 function sourceStatus(value: string): string {
   return normalizeLookup(value) === "completed" ? "complete" : "incomplete"
-}
-
-function deterministicId(type: string, sourceKey: string): string {
-  const digest = crypto
-    .createHash("sha256")
-    .update(`one-time-migration:${type}:${sourceKey}`)
-    .digest("hex")
-    .slice(0, 24)
-  return `mig_${type}_${digest}`
 }
 
 function placeholderEmail(personImportKey: string): string {
@@ -501,6 +496,49 @@ async function preflight(args: CliArgs) {
   return { workspace, owner }
 }
 
+async function ensureImportActor(workspaceId: string, dryRun: boolean) {
+  const actor = getJsonlImportActorIdentity(workspaceId)
+
+  if (!dryRun) {
+    await prisma.$transaction([
+      prisma.user.upsert({
+        where: { id: actor.id },
+        create: {
+          id: actor.id,
+          full_name: actor.fullName,
+          email: actor.email,
+          password_hash: null,
+          is_super_admin: false,
+          active_workspace_id: workspaceId,
+        },
+        update: {
+          full_name: actor.fullName,
+          email: actor.email,
+          password_hash: null,
+          is_super_admin: false,
+          active_workspace_id: workspaceId,
+        },
+      }),
+      prisma.workspaceMember.upsert({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: workspaceId,
+            user_id: actor.id,
+          },
+        },
+        create: {
+          workspace_id: workspaceId,
+          user_id: actor.id,
+          role: "member",
+        },
+        update: { role: "member" },
+      }),
+    ])
+  }
+
+  return actor
+}
+
 // ---------------------------------------------------------------------------
 // People import
 // ---------------------------------------------------------------------------
@@ -777,7 +815,7 @@ function buildTaskDescription(
 async function importTasks(
   tasks: TaskRecord[],
   workspaceId: string,
-  ownerId: string,
+  importActorId: string,
   personMap: Map<string, string>,
   recurringTasks: Map<string, RecurringTaskRecord>,
   stats: ImportStats,
@@ -819,7 +857,7 @@ async function importTasks(
           description_rich_text: description,
           status,
           assignee_id: assigneeId,
-          creator_id: ownerId,
+          creator_id: importActorId,
           due_date: parseDate(task.due_date),
           completed_at: completedAt,
           task_type: "task",
@@ -881,7 +919,7 @@ async function importTasks(
                 description_rich_text: description,
                 status,
                 assignee_id: assigneeId,
-                creator_id: ownerId,
+                creator_id: importActorId,
                 due_date: parseDate(task.due_date),
                 completed_at: completedAt,
                 task_type: "task",
@@ -901,7 +939,7 @@ async function importTasks(
                 description_rich_text: description,
                 status,
                 assignee_id: assigneeId,
-                creator_id: ownerId,
+                creator_id: importActorId,
                 due_date: parseDate(task.due_date),
                 completed_at: completedAt,
                 task_type: "task",
@@ -1408,10 +1446,11 @@ async function main() {
         data: { phase: "tasks" },
       })
     }
+    const importActor = await ensureImportActor(workspace.id, args.dryRun)
     const importedTaskIds = await importTasks(
       data.tasks,
       workspace.id,
-      owner.id,
+      importActor.id,
       personMap,
       data.recurringTasks,
       stats,

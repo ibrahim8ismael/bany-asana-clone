@@ -4,19 +4,21 @@ import { authOptions } from "@/lib/auth"
 import Link from "next/link"
 import { format } from "date-fns"
 import { Calendar, CheckCircle, Clock, Flag, FolderOpen, Zap } from "lucide-react"
-import { getActiveWorkspaceForUser, projectAccessWhere, taskAccessWhere } from "@/lib/permissions"
+import { getActiveWorkspaceForUser, isSuperAdminUser, projectAccessWhere, taskAccessWhere } from "@/lib/permissions"
 
 export default async function HomePage() {
   const session = await getServerSession(authOptions)
   const userId = (session?.user as { id?: string } | undefined)?.id
   const userName = session?.user?.name?.split(" ")[0] || "there"
-  const activeWorkspace = userId ? await getActiveWorkspaceForUser(userId) : null
+  const [activeWorkspace, superAdmin] = userId
+    ? await Promise.all([getActiveWorkspaceForUser(userId), isSuperAdminUser(userId)])
+    : [null, false]
 
   const myTasks = userId && activeWorkspace
     ? await prisma.task.findMany({
         where: {
           AND: [
-            taskAccessWhere(userId, "view"),
+            taskAccessWhere(userId, "view", superAdmin),
             { workspace_id: activeWorkspace.id },
             { assignee_id: userId, status: { not: "complete" } },
           ],
@@ -31,7 +33,7 @@ export default async function HomePage() {
     ? await prisma.task.count({
         where: {
           AND: [
-            taskAccessWhere(userId, "view"),
+            taskAccessWhere(userId, "view", superAdmin),
             { workspace_id: activeWorkspace.id },
             { assignee_id: userId, status: { not: "complete" } },
           ],
@@ -44,7 +46,7 @@ export default async function HomePage() {
         where: {
           workspace_id: activeWorkspace.id,
           archived: false,
-          ...projectAccessWhere(userId),
+          ...projectAccessWhere(userId, "view", superAdmin),
         },
         include: { sections: { include: { _count: { select: { tasks: true } } } } },
         orderBy: { updated_at: "desc" },
@@ -56,7 +58,7 @@ export default async function HomePage() {
     ? await prisma.task.count({
         where: {
           AND: [
-            taskAccessWhere(userId, "view"),
+            taskAccessWhere(userId, "view", superAdmin),
             { workspace_id: activeWorkspace.id },
             {
               assignee_id: userId,
@@ -72,7 +74,7 @@ export default async function HomePage() {
     ? await prisma.task.count({
         where: {
           AND: [
-            taskAccessWhere(userId, "view"),
+            taskAccessWhere(userId, "view", superAdmin),
             { workspace_id: activeWorkspace.id },
             {
               assignee_id: userId,

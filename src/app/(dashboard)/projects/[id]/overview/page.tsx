@@ -3,7 +3,7 @@ import { format } from "date-fns"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { parseActivityMeta } from "@/lib/activity"
-import { projectAccessWhere } from "@/lib/permissions"
+import { isSuperAdminUser, projectAccessWhere } from "@/lib/permissions"
 import ProjectMembersManager from "@/components/project-members-manager"
 import ProjectQualityPolicySettings from "@/components/project-quality-policy-settings"
 import ProjectViewTabs from "@/components/project-view-tabs"
@@ -31,8 +31,9 @@ export default async function ProjectOverviewPage({ params }: { params: Promise<
   const userId = (session?.user as { id?: string } | undefined)?.id
   if (!userId) return <div>Project not found</div>
 
+  const isSuperAdmin = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
-    where: { id, ...projectAccessWhere(userId) },
+    where: { id, ...projectAccessWhere(userId, "view", isSuperAdmin) },
     include: {
       members: { include: { user: { select: USER_PUBLIC_SELECT } } },
       default_reviewer: { select: USER_PUBLIC_SELECT },
@@ -45,7 +46,7 @@ export default async function ProjectOverviewPage({ params }: { params: Promise<
 
   const canManageProject = Boolean(
     await prisma.project.findFirst({
-      where: { id, ...projectAccessWhere(userId, "manage") },
+      where: { id, ...projectAccessWhere(userId, "manage", isSuperAdmin) },
       select: { id: true },
     })
   )
