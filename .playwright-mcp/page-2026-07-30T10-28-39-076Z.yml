@@ -1,0 +1,42 @@
+- generic [ref=e6]:
+  - generic [ref=e7]:
+    - generic [ref=e8]: TaskFlow
+    - generic [ref=e12]:
+      - heading "Work stays clear when the front door does too." [level=2] [ref=e13]
+      - paragraph [ref=e14]: Sign in or create an account to get back to client work, project momentum, and the tasks your team needs to move today.
+    - generic [ref=e15]:
+      - generic [ref=e16]: Clients
+      - generic [ref=e17]: Projects
+      - generic [ref=e18]: Task handoffs
+      - generic [ref=e19]: Delivery updates
+    - generic [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e25]: Pick up where work paused
+        - paragraph [ref=e26]: Jump straight back into active clients, project boards, and handoffs without hunting for context.
+      - generic [ref=e27]:
+        - generic [ref=e32]: Keep teams aligned
+        - paragraph [ref=e33]: Shared workspaces, clear ownership, and fast updates keep internal collaboration moving.
+      - generic [ref=e34]:
+        - generic [ref=e37]: Stay close to delivery
+        - paragraph [ref=e38]: Tasks, milestones, and client-facing work all stay connected in one place.
+  - generic [ref=e41]:
+    - generic [ref=e42]:
+      - generic [ref=e43]: Welcome Back
+      - heading "Sign in to TaskFlow" [level=1] [ref=e44]
+      - paragraph [ref=e45]: Use your work account to get back to active clients, project handoffs, and the next task that needs attention.
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - generic [ref=e49]: Work email
+        - textbox "Work email" [ref=e50]:
+          - /placeholder: team@company.com
+      - generic [ref=e51]:
+        - generic [ref=e52]:
+          - generic [ref=e53]: Password
+          - generic [ref=e54]: Private and secure
+        - textbox "Password" [ref=e58]:
+          - /placeholder: Enter your password
+      - button "Sign in" [ref=e59]
+    - generic [ref=e61]:
+      - generic [ref=e62]: Need an account?
+      - link "Create one" [ref=e63] [cursor=pointer]:
+        - /url: /register

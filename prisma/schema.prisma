@@ -1,0 +1,746 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String   @id @default(cuid())
+  full_name           String
+  email               String   @unique
+  avatar_url          String?
+  password_hash       String?
+  is_super_admin      Boolean  @default(false)
+  timezone            String?
+  active_workspace_id String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  workspaces                WorkspaceMember[]
+  teams                     TeamMember[]
+  projects                  ProjectMember[]
+  projects_default_reviewer Project[]            @relation("ProjectDefaultReviewer")
+  tasks_assigned            Task[]               @relation("TaskAssignee")
+  tasks_created             Task[]               @relation("TaskCreator")
+  tasks_reviewing           Task[]               @relation("TaskReviewer")
+  quality_submissions       TaskQualityReview[]  @relation("QualityReviewSubmitter")
+  quality_reviews           TaskQualityReview[]  @relation("QualityReviewReviewer")
+  comments                  Comment[]
+  reactions                 CommentReaction[]
+  task_followers            TaskFollower[]
+  activity_actor            ActivityLog[]        @relation("ActivityLogActor")
+  notifications             Notification[]
+  goals_owned               Goal[]               @relation("GoalOwner")
+  portfolios_owned          Portfolio[]          @relation("PortfolioOwner")
+  time_entries              TimeEntry[]
+  form_submissions          FormSubmission[]
+  templates                 ProjectTemplate[]
+  forms                     Form[]
+  sections                  Section[]
+  access_requests           AdminAccessRequest[] @relation("AccessRequestUser")
+  access_reviews            AdminAccessRequest[] @relation("AccessRequestReviewer")
+  asana_connections         AsanaConnection[]    @relation("AsanaConnectionCreator")
+  import_runs               ImportRun[]          @relation("ImportRunRequester")
+  active_workspace          Workspace?           @relation("UserActiveWorkspace", fields: [active_workspace_id], references: [id], onDelete: SetNull)
+
+  @@index([active_workspace_id])
+}
+
+model Workspace {
+  id         String   @id @default(cuid())
+  name       String
+  slug       String   @unique
+  logo_url   String?
+  owner_id   String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  members           WorkspaceMember[]
+  teams             Team[]
+  clients           Client[]
+  projects          Project[]
+  tasks             Task[]
+  tags              Tag[]
+  custom_fields     CustomField[]
+  activity_logs     ActivityLog[]
+  goals             Goal[]
+  portfolios        Portfolio[]
+  templates         ProjectTemplate[]
+  access_requests   AdminAccessRequest[]
+  asana_connections AsanaConnection[]
+  import_runs       ImportRun[]
+  active_users      User[]               @relation("UserActiveWorkspace")
+}
+
+model WorkspaceMember {
+  id           String    @id @default(cuid())
+  workspace_id String
+  user_id      String
+  role         String // owner, admin, member, guest
+  joined_at    DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_id, user_id])
+  @@index([user_id, role])
+}
+
+model Team {
+  id           String       @id @default(cuid())
+  workspace_id String
+  name         String
+  description  String?
+  created_by   String
+  created_at   DateTime     @default(now())
+  updated_at   DateTime     @updatedAt
+  workspace    Workspace    @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  members      TeamMember[]
+  projects     Project[]
+  goals        Goal[]
+
+  @@index([workspace_id, name])
+}
+
+model TeamMember {
+  id      String @id @default(cuid())
+  team_id String
+  user_id String
+  role    String // owner, member
+  team    Team   @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, user_id])
+}
+
+model Client {
+  id           String    @id @default(cuid())
+  workspace_id String
+  name         String
+  email        String?
+  notes        String?
+  color        String?
+  archived     Boolean   @default(false)
+  archived_at  DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  projects  Project[]
+  tasks     Task[]    @relation("ClientTasks")
+
+  @@index([workspace_id, archived, updated_at])
+}
+
+model Project {
+  id                  String    @id @default(cuid())
+  workspace_id        String
+  client_id           String?
+  team_id             String?
+  name                String
+  description         String?
+  deadline            DateTime?
+  status              String    @default("incomplete")
+  color               String?
+  icon                String?
+  owner_id            String
+  privacy             String // private, team_visible, workspace_visible
+  default_view        String // list, board, calendar, timeline
+  quality_policy      String    @default("off") // off, optional, required
+  default_reviewer_id String?
+  review_sla_days     Int       @default(1)
+  archived            Boolean   @default(false)
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  workspace        Workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  client           Client?            @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  team             Team?              @relation(fields: [team_id], references: [id])
+  default_reviewer User?              @relation("ProjectDefaultReviewer", fields: [default_reviewer_id], references: [id], onDelete: SetNull)
+  members          ProjectMember[]
+  sections         Section[]
+  tasks            Task[]             @relation("ProjectTasks")
+  task_links       TaskProjectLink[]
+  custom_fields    CustomField[]
+  portfolios       PortfolioProject[]
+  budgets          Budget[]
+  forms            Form[]
+  automations      AutomationRule[]
+
+  @@index([workspace_id, archived, updated_at])
+  @@index([client_id, status])
+  @@index([team_id])
+  @@index([default_reviewer_id])
+}
+
+model ProjectMember {
+  id         String  @id @default(cuid())
+  project_id String
+  user_id    String
+  role       String // owner, admin, editor, commenter, viewer
+  is_starred Boolean @default(false)
+  project    Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user       User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, user_id])
+}
+
+model Section {
+  id         String            @id @default(cuid())
+  project_id String?
+  user_id    String?
+  name       String
+  position   Float
+  created_at DateTime          @default(now())
+  updated_at DateTime          @updatedAt
+  project    Project?          @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user       User?             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  tasks      Task[]            @relation("SectionTasks")
+  task_links TaskProjectLink[]
+
+  @@index([project_id, position])
+  @@index([user_id, position])
+}
+
+model Task {
+  id                      String    @id @default(cuid())
+  workspace_id            String
+  project_id              String?
+  client_id               String?
+  parent_task_id          String?
+  section_id              String?
+  title                   String
+  description_rich_text   String?
+  status                  String
+  priority                String?
+  assignee_id             String?
+  creator_id              String
+  start_date              DateTime?
+  due_date                DateTime?
+  due_time                String?
+  completed_at            DateTime?
+  approval_state          String?
+  task_type               String    @default("task") // task, milestone, approval
+  quality_required        Boolean   @default(false)
+  quality_policy_override String?
+  quality_state           String    @default("not_required") // not_required, ready, submitted, needs_rework, approved, approved_with_notes
+  reviewer_id             String?
+  first_submitted_at      DateTime?
+  original_due_date       DateTime?
+  rework_due_date         DateTime?
+  approved_at             DateTime?
+  quality_score           Int?
+  first_quality_grade     String?
+  final_quality_grade     String?
+  review_cycle_count      Int       @default(0)
+  rework_count            Int       @default(0)
+  quality_blocker_count   Int       @default(0)
+  position                Float
+  archived                Boolean   @default(false)
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project     Project?  @relation("ProjectTasks", fields: [project_id], references: [id])
+  client      Client?   @relation("ClientTasks", fields: [client_id], references: [id])
+  section     Section?  @relation("SectionTasks", fields: [section_id], references: [id])
+  assignee    User?     @relation("TaskAssignee", fields: [assignee_id], references: [id])
+  creator     User      @relation("TaskCreator", fields: [creator_id], references: [id])
+  reviewer    User?     @relation("TaskReviewer", fields: [reviewer_id], references: [id])
+  parent_task Task?     @relation("Subtasks", fields: [parent_task_id], references: [id])
+  subtasks    Task[]    @relation("Subtasks")
+
+  task_links          TaskProjectLink[]
+  blocking_deps       TaskDependency[]       @relation("BlockingTask")
+  blocked_by          TaskDependency[]       @relation("BlockedTask")
+  tags                TaskTag[]
+  custom_field_values TaskCustomFieldValue[]
+  attachments         Attachment[]
+  comments            Comment[]
+  followers           TaskFollower[]
+  time_entries        TimeEntry[]
+  quality_criteria    TaskQualityCriterion[]
+  quality_reviews     TaskQualityReview[]
+
+  @@index([workspace_id, archived, status])
+  @@index([project_id, section_id, position])
+  @@index([client_id, project_id, status])
+  @@index([assignee_id, archived, due_date])
+  @@index([workspace_id, first_submitted_at])
+  @@index([reviewer_id, quality_state])
+  @@index([parent_task_id, position])
+}
+
+model TaskQualityCriterion {
+  id         String                       @id @default(cuid())
+  task_id    String
+  title      String
+  position   Int
+  created_at DateTime                     @default(now())
+  updated_at DateTime                     @updatedAt
+  task       Task                         @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  results    TaskQualityCriterionResult[]
+
+  @@index([task_id, position])
+}
+
+model TaskQualityReview {
+  id                String                       @id @default(cuid())
+  task_id           String
+  cycle_number      Int
+  status            String                       @default("pending") // pending, approved, approved_with_notes, needs_rework
+  grade             String?
+  score             Int?
+  decision          String?
+  submission_note   String?
+  submitted_by_id   String
+  submitted_at      DateTime                     @default(now())
+  review_due_at     DateTime
+  reviewer_id       String
+  reviewed_at       DateTime?
+  review_note       String?
+  rework_due_date   DateTime?
+  affects_score     Boolean                      @default(false)
+  created_at        DateTime                     @default(now())
+  updated_at        DateTime                     @updatedAt
+  task              Task                         @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  submitter         User                         @relation("QualityReviewSubmitter", fields: [submitted_by_id], references: [id])
+  reviewer          User                         @relation("QualityReviewReviewer", fields: [reviewer_id], references: [id])
+  criterion_results TaskQualityCriterionResult[]
+  issues            TaskQualityIssue[]
+
+  @@unique([task_id, cycle_number])
+  @@index([reviewer_id, status, review_due_at])
+  @@index([submitted_by_id, submitted_at])
+}
+
+model TaskQualityCriterionResult {
+  id              String                @id @default(cuid())
+  review_id       String
+  criterion_id    String?
+  criterion_title String
+  passed          Boolean
+  review          TaskQualityReview     @relation(fields: [review_id], references: [id], onDelete: Cascade)
+  criterion       TaskQualityCriterion? @relation(fields: [criterion_id], references: [id], onDelete: SetNull)
+
+  @@unique([review_id, criterion_id])
+  @@index([criterion_id])
+}
+
+model TaskQualityIssue {
+  id          String            @id @default(cuid())
+  review_id   String
+  severity    String // minor, major, blocker
+  reason      String // execution_gap, unresolved, regression, reviewer_missed, scope_change, unclear_requirements
+  description String
+  created_at  DateTime          @default(now())
+  review      TaskQualityReview @relation(fields: [review_id], references: [id], onDelete: Cascade)
+
+  @@index([review_id, severity])
+}
+
+model TaskProjectLink {
+  id         String   @id @default(cuid())
+  task_id    String
+  project_id String
+  section_id String?
+  position   Float
+  task       Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  section    Section? @relation(fields: [section_id], references: [id])
+
+  @@unique([task_id, project_id])
+}
+
+model TaskDependency {
+  id               String   @id @default(cuid())
+  blocking_task_id String
+  blocked_task_id  String
+  type             String   @default("finish_to_start")
+  created_at       DateTime @default(now())
+  blocking_task    Task     @relation("BlockingTask", fields: [blocking_task_id], references: [id], onDelete: Cascade)
+  blocked_task     Task     @relation("BlockedTask", fields: [blocked_task_id], references: [id], onDelete: Cascade)
+
+  @@unique([blocking_task_id, blocked_task_id])
+}
+
+model Tag {
+  id           String    @id @default(cuid())
+  workspace_id String
+  name         String
+  color        String?
+  workspace    Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  tasks        TaskTag[]
+}
+
+model TaskTag {
+  id      String @id @default(cuid())
+  task_id String
+  tag_id  String
+  task    Task   @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  tag     Tag    @relation(fields: [tag_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, tag_id])
+}
+
+model CustomField {
+  id           String                 @id @default(cuid())
+  workspace_id String
+  project_id   String?
+  name         String
+  type         String // text, number, single_select, multi_select, date, checkbox, user
+  config_json  String?
+  created_at   DateTime               @default(now())
+  updated_at   DateTime               @updatedAt
+  workspace    Workspace              @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project      Project?               @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  options      CustomFieldOption[]
+  values       TaskCustomFieldValue[]
+}
+
+model CustomFieldOption {
+  id              String      @id @default(cuid())
+  custom_field_id String
+  label           String
+  color           String?
+  position        Float
+  custom_field    CustomField @relation(fields: [custom_field_id], references: [id], onDelete: Cascade)
+}
+
+model TaskCustomFieldValue {
+  id              String      @id @default(cuid())
+  task_id         String
+  custom_field_id String
+  value_json      String
+  task            Task        @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  custom_field    CustomField @relation(fields: [custom_field_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, custom_field_id])
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  task_id     String
+  uploaded_by String
+  file_name   String
+  file_url    String
+  mime_type   String
+  file_size   Int
+  created_at  DateTime @default(now())
+  task        Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+}
+
+model Comment {
+  id             String            @id @default(cuid())
+  task_id        String
+  author_id      String
+  body_rich_text String
+  created_at     DateTime          @default(now())
+  updated_at     DateTime          @updatedAt
+  edited_at      DateTime?
+  task           Task              @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  author         User              @relation(fields: [author_id], references: [id])
+  reactions      CommentReaction[]
+
+  @@index([task_id, created_at])
+}
+
+model CommentReaction {
+  id         String  @id @default(cuid())
+  comment_id String
+  user_id    String
+  emoji      String
+  comment    Comment @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+  user       User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([comment_id, user_id, emoji])
+}
+
+model TaskFollower {
+  id      String @id @default(cuid())
+  task_id String
+  user_id String
+  task    Task   @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, user_id])
+}
+
+model ActivityLog {
+  id           String    @id @default(cuid())
+  workspace_id String
+  actor_id     String?
+  entity_type  String
+  entity_id    String
+  action       String
+  meta_json    String?
+  created_at   DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  actor        User?     @relation("ActivityLogActor", fields: [actor_id], references: [id])
+
+  @@index([workspace_id, created_at])
+  @@index([entity_type, entity_id, created_at])
+}
+
+model Notification {
+  id                  String    @id @default(cuid())
+  user_id             String
+  type                String
+  title               String
+  body                String
+  related_entity_type String
+  related_entity_id   String
+  is_read             Boolean   @default(false)
+  snoozed_until       DateTime?
+  created_at          DateTime  @default(now())
+  user                User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, is_read, created_at])
+}
+
+model AdminAccessRequest {
+  id             String     @id @default(cuid())
+  user_id        String
+  workspace_id   String?
+  requested_role String
+  note           String?
+  status         String     @default("pending") // pending, approved, rejected
+  reviewed_by    String?
+  review_note    String?
+  reviewed_at    DateTime?
+  created_at     DateTime   @default(now())
+  updated_at     DateTime   @updatedAt
+  user           User       @relation("AccessRequestUser", fields: [user_id], references: [id], onDelete: Cascade)
+  workspace      Workspace? @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  reviewer       User?      @relation("AccessRequestReviewer", fields: [reviewed_by], references: [id])
+
+  @@index([status, created_at])
+}
+
+model Goal {
+  id            String     @id @default(cuid())
+  workspace_id  String
+  team_id       String?
+  owner_id      String
+  name          String
+  description   String?
+  status        String // on_track, at_risk, off_track, achieved
+  target_type   String // number, percentage, currency, boolean
+  target_value  Float?
+  current_value Float?
+  start_date    DateTime?
+  due_date      DateTime?
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+  workspace     Workspace  @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  team          Team?      @relation(fields: [team_id], references: [id])
+  owner         User       @relation("GoalOwner", fields: [owner_id], references: [id])
+  links         GoalLink[]
+}
+
+model GoalLink {
+  id          String @id @default(cuid())
+  goal_id     String
+  entity_type String // project, task, portfolio
+  entity_id   String
+  goal        Goal   @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+
+  @@unique([goal_id, entity_type, entity_id])
+}
+
+model Portfolio {
+  id           String             @id @default(cuid())
+  workspace_id String
+  name         String
+  description  String?
+  owner_id     String
+  created_at   DateTime           @default(now())
+  updated_at   DateTime           @updatedAt
+  workspace    Workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  owner        User               @relation("PortfolioOwner", fields: [owner_id], references: [id])
+  projects     PortfolioProject[]
+}
+
+model PortfolioProject {
+  id           String    @id @default(cuid())
+  portfolio_id String
+  project_id   String
+  position     Float
+  portfolio    Portfolio @relation(fields: [portfolio_id], references: [id], onDelete: Cascade)
+  project      Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@unique([portfolio_id, project_id])
+}
+
+model TimeEntry {
+  id         String   @id @default(cuid())
+  task_id    String
+  user_id    String
+  date       DateTime
+  minutes    Int
+  note       String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  task       Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  project_id String
+  name       String
+  amount     Float
+  currency   String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+}
+
+model Form {
+  id          String           @id @default(cuid())
+  project_id  String
+  name        String
+  description String?
+  is_active   Boolean          @default(true)
+  created_by  String
+  created_at  DateTime         @default(now())
+  updated_at  DateTime         @updatedAt
+  project     Project          @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  creator     User             @relation(fields: [created_by], references: [id])
+  fields      FormField[]
+  submissions FormSubmission[]
+}
+
+model FormField {
+  id          String  @id @default(cuid())
+  form_id     String
+  label       String
+  type        String
+  required    Boolean @default(false)
+  config_json String?
+  position    Float
+  form        Form    @relation(fields: [form_id], references: [id], onDelete: Cascade)
+}
+
+model FormSubmission {
+  id                   String   @id @default(cuid())
+  form_id              String
+  submitted_by_user_id String?
+  response_json        String
+  created_task_id      String?
+  created_at           DateTime @default(now())
+  form                 Form     @relation(fields: [form_id], references: [id], onDelete: Cascade)
+  submitter            User?    @relation(fields: [submitted_by_user_id], references: [id])
+}
+
+model AutomationRule {
+  id              String   @id @default(cuid())
+  project_id      String
+  name            String
+  is_active       Boolean  @default(true)
+  trigger_type    String
+  conditions_json String
+  actions_json    String
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  project         Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+}
+
+model ProjectTemplate {
+  id            String    @id @default(cuid())
+  workspace_id  String
+  name          String
+  description   String?
+  template_json String
+  created_by    String
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  workspace     Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  creator       User      @relation(fields: [created_by], references: [id])
+}
+
+model AsanaConnection {
+  id                     String              @id @default(cuid())
+  workspace_id           String
+  created_by             String
+  auth_type              String              @default("pat")
+  access_token_encrypted String
+  asana_workspace_gid    String
+  asana_workspace_name   String
+  status                 String              @default("active")
+  last_inventory_at      DateTime?
+  created_at             DateTime            @default(now())
+  updated_at             DateTime            @updatedAt
+  workspace              Workspace           @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  creator                User                @relation("AsanaConnectionCreator", fields: [created_by], references: [id], onDelete: Cascade)
+  import_runs            ImportRun[]
+  object_maps            ExternalObjectMap[]
+
+  @@unique([workspace_id, asana_workspace_gid])
+  @@index([created_by, status])
+}
+
+model ImportRun {
+  id            String              @id @default(cuid())
+  connection_id String?
+  workspace_id  String
+  requested_by  String
+  source        String              @default("asana")
+  kind          String              @default("inventory")
+  status        String              @default("running")
+  phase         String?
+  cursor_json   String?
+  summary_json  String?
+  error_message String?
+  started_at    DateTime            @default(now())
+  completed_at  DateTime?
+  created_at    DateTime            @default(now())
+  updated_at    DateTime            @updatedAt
+  connection    AsanaConnection?    @relation(fields: [connection_id], references: [id], onDelete: SetNull)
+  workspace     Workspace           @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  requester     User                @relation("ImportRunRequester", fields: [requested_by], references: [id], onDelete: Cascade)
+  issues        ImportIssue[]
+  object_maps   ExternalObjectMap[]
+
+  @@index([workspace_id, status, created_at])
+  @@index([connection_id, created_at])
+}
+
+model ExternalObjectMap {
+  id                 String          @id @default(cuid())
+  connection_id      String
+  import_run_id      String?
+  source_type        String
+  source_gid         String
+  target_type        String
+  target_id          String
+  source_modified_at DateTime?
+  source_hash        String?
+  created_at         DateTime        @default(now())
+  updated_at         DateTime        @updatedAt
+  connection         AsanaConnection @relation(fields: [connection_id], references: [id], onDelete: Cascade)
+  import_run         ImportRun?      @relation(fields: [import_run_id], references: [id], onDelete: SetNull)
+
+  @@unique([connection_id, source_type, source_gid])
+  @@index([target_type, target_id])
+  @@index([import_run_id])
+}
+
+model ImportIssue {
+  id            String    @id @default(cuid())
+  import_run_id String
+  severity      String
+  code          String
+  source_type   String?
+  source_gid    String?
+  message       String
+  details_json  String?
+  created_at    DateTime  @default(now())
+  import_run    ImportRun @relation(fields: [import_run_id], references: [id], onDelete: Cascade)
+
+  @@index([import_run_id, severity])
+  @@index([source_type, source_gid])
+}

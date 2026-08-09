@@ -1,0 +1,89 @@
+- generic [active] [ref=e1]:
+  - alert [ref=e64]
+  - generic [ref=e65]:
+    - complementary "Primary navigation" [ref=e66]:
+      - generic [ref=e67]: TaskFlow
+      - navigation [ref=e75]:
+        - button [ref=e77]
+        - button "kassem Workspace" [ref=e81]
+        - list [ref=e85]:
+          - listitem [ref=e86]:
+            - link "Home" [ref=e87] [cursor=pointer]:
+              - /url: /home
+          - listitem [ref=e91]:
+            - link "My Tasks" [ref=e92] [cursor=pointer]:
+              - /url: /my-tasks
+          - listitem [ref=e96]:
+            - link "Inbox" [ref=e97] [cursor=pointer]:
+              - /url: /inbox
+        - generic [ref=e101]:
+          - button "Insights" [ref=e102]
+          - list [ref=e105]:
+            - listitem [ref=e106]:
+              - link "KPI Dashboard" [ref=e107] [cursor=pointer]:
+                - /url: /reporting
+            - listitem [ref=e109]:
+              - link "Clients" [ref=e110] [cursor=pointer]:
+                - /url: /clients
+            - listitem [ref=e114]:
+              - link "Goals" [ref=e115] [cursor=pointer]:
+                - /url: /goals
+        - generic [ref=e120]:
+          - button "Starred" [ref=e121]
+          - generic [ref=e124]: No starred items
+        - generic [ref=e126]:
+          - generic [ref=e127]:
+            - button "Clients" [ref=e128]
+            - button "Create new client" [ref=e131]
+          - list [ref=e133]:
+            - listitem [ref=e134]: No clients yet
+      - generic [ref=e135]:
+        - link "Account" [ref=e136] [cursor=pointer]:
+          - /url: /account
+        - link "Manage members" [ref=e140] [cursor=pointer]:
+          - /url: /admin/members
+        - link "Help center" [ref=e144] [cursor=pointer]:
+          - /url: /help
+        - button "Invite teammates" [ref=e152]
+    - generic [ref=e156]:
+      - banner [ref=e157]:
+        - generic [ref=e158]:
+          - button "Go back" [ref=e159]
+          - button "Go forward" [ref=e162]
+          - link "Recent items" [ref=e165] [cursor=pointer]:
+            - /url: /home
+        - searchbox "Search" [ref=e174]
+        - generic [ref=e175]:
+          - link "Help center" [ref=e176] [cursor=pointer]:
+            - /url: /help
+          - link "Open insights" [ref=e180] [cursor=pointer]:
+            - /url: /reporting
+          - link "Notifications" [ref=e184] [cursor=pointer]:
+            - /url: /inbox
+          - link [ref=e188] [cursor=pointer]:
+            - /url: /account
+            - img "Avatar" [ref=e189]
+      - main [ref=e190]:
+        - generic [ref=e192]:
+          - generic [ref=e193]:
+            - heading "Good morning, kassem 👋" [level=1] [ref=e194]
+            - paragraph [ref=e195]: Here's what's happening across your workspace.
+          - generic [ref=e196]:
+            - generic [ref=e202]:
+              - paragraph [ref=e203]: "2"
+              - paragraph [ref=e204]: Tasks upcoming
+            - generic [ref=e209]:
+              - paragraph [ref=e210]: "0"
+              - paragraph [ref=e211]: Tasks overdue
+            - generic [ref=e216]:
+              - paragraph [ref=e217]: "0"
+              - paragraph [ref=e218]: Completed today
+          - generic [ref=e219]:
+            - generic [ref=e220]:
+              - heading "My Upcoming Tasks" [level=2] [ref=e221]
+              - link "View all →" [ref=e222] [cursor=pointer]:
+                - /url: /my-tasks
+            - generic [ref=e223]:
+              - generic [ref=e224]: New Task
+              - generic [ref=e227]: New Task
+          - heading "Projects" [level=2] [ref=e232]
