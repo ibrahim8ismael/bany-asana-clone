@@ -16,6 +16,8 @@ import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { projectAccessWhere } from "@/lib/permissions"
 import ProjectViewTabs from "@/components/project-view-tabs"
+import ProjectAccessDenied from "@/components/project-access-denied"
+import { notFound } from "next/navigation"
 import ShareButton from "@/components/share-button"
 
 function parseMonthParam(value?: string) {
@@ -48,7 +50,15 @@ export default async function ProjectTimelinePage({
     include: { tasks: { orderBy: [{ start_date: "asc" }, { due_date: "asc" }, { created_at: "asc" }] } },
   })
 
-  if (!project) return <div>Project not found</div>
+  if (!project) {
+    if (id !== "demo") {
+      const existingProject = await prisma.project.findUnique({ where: { id } })
+      if (existingProject) {
+        return <ProjectAccessDenied projectId={id} projectName={existingProject.name} />
+      }
+    }
+    return notFound()
+  }
 
   const scheduledTasks = project.tasks
     .map((task) => {

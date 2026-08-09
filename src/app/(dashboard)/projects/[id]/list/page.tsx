@@ -3,6 +3,7 @@ import Link from "next/link"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
+import ProjectAccessDenied from "@/components/project-access-denied"
 import ListClient from "./list-client"
 import ProjectViewTabs from "@/components/project-view-tabs"
 import { isSuperAdminUser, projectAccessWhere } from "@/lib/permissions"
@@ -42,7 +43,15 @@ export default async function ListPage({ params }: { params: Promise<{ id: strin
     }
   })
 
-  if (!project) return notFound()
+  if (!project) {
+    if (id !== "demo") {
+      const existingProject = await prisma.project.findUnique({ where: { id } })
+      if (existingProject) {
+        return <ProjectAccessDenied projectId={id} projectName={existingProject.name} />
+      }
+    }
+    return notFound()
+  }
   const canImport = await isSuperAdminUser(userId)
 
   return (

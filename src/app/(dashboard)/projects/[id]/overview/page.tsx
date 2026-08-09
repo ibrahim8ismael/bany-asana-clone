@@ -5,6 +5,8 @@ import { authOptions } from "@/lib/auth"
 import { parseActivityMeta } from "@/lib/activity"
 import { projectAccessWhere } from "@/lib/permissions"
 import ProjectMembersManager from "@/components/project-members-manager"
+import ProjectAccessDenied from "@/components/project-access-denied"
+import { notFound } from "next/navigation"
 import ProjectQualityPolicySettings from "@/components/project-quality-policy-settings"
 import ProjectViewTabs from "@/components/project-view-tabs"
 import ShareButton from "@/components/share-button"
@@ -41,7 +43,15 @@ export default async function ProjectOverviewPage({ params }: { params: Promise<
     }
   })
 
-  if (!project) return <div>Project not found</div>
+  if (!project) {
+    if (id !== "demo") {
+      const existingProject = await prisma.project.findUnique({ where: { id } })
+      if (existingProject) {
+        return <ProjectAccessDenied projectId={id} projectName={existingProject.name} />
+      }
+    }
+    return notFound()
+  }
 
   const canManageProject = Boolean(
     await prisma.project.findFirst({

@@ -9,6 +9,8 @@ import ShareButton from "@/components/share-button"
 import { isSuperAdminUser } from "@/lib/permissions"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
 import { ListTodo, Star } from "lucide-react"
+import { notFound } from "next/navigation"
+import ProjectAccessDenied from "@/components/project-access-denied"
 
 export default async function BoardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -43,12 +45,13 @@ export default async function BoardPage({ params }: { params: Promise<{ id: stri
   })
 
   if (!project) {
-    return (
-      <div className="flex flex-col h-full bg-white dark:bg-zinc-950 p-8 items-center justify-center text-center">
-        <h2 className="text-xl font-semibold mb-2">Project not found</h2>
-        <p className="text-gray-500 max-w-md">Make sure you have run the database migrations and seed script to populate the demo projects.</p>
-      </div>
-    )
+    if (id !== "demo") {
+      const existingProject = await prisma.project.findUnique({ where: { id } })
+      if (existingProject) {
+        return <ProjectAccessDenied projectId={id} projectName={existingProject.name} />
+      }
+    }
+    return notFound()
   }
 
   const canImport = await isSuperAdminUser(userId)

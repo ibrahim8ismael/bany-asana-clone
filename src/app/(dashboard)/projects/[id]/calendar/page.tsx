@@ -18,6 +18,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
+import ProjectAccessDenied from "@/components/project-access-denied"
 import ProjectViewTabs from "@/components/project-view-tabs"
 import { projectAccessWhere } from "@/lib/permissions"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
@@ -59,7 +60,15 @@ export default async function CalendarPage({
     },
   })
 
-  if (!project) return notFound()
+  if (!project) {
+    if (id !== "demo") {
+      const existingProject = await prisma.project.findUnique({ where: { id } })
+      if (existingProject) {
+        return <ProjectAccessDenied projectId={id} projectName={existingProject.name} />
+      }
+    }
+    return notFound()
+  }
 
   const gridStart = startOfWeek(currentMonth, { weekStartsOn: 0 })
   const gridEnd = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 })
