@@ -93,6 +93,7 @@ export default async function MyTasksPage({
           workspace_id: activeWorkspace.id,
           archived: false,
           reviewer_id: userId,
+          status: "submitted_for_review",
           quality_state: "submitted",
         },
       ],
@@ -123,6 +124,7 @@ export default async function MyTasksPage({
         {
           workspace_id: activeWorkspace.id,
           archived: false,
+          status: "needs_rework",
           quality_state: "needs_rework",
           OR: [
             { assignee_id: userId },

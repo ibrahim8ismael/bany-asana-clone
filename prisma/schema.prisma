@@ -80,7 +80,7 @@ model WorkspaceMember {
   id           String    @id @default(cuid())
   workspace_id String
   user_id      String
-  role         String // owner, admin, member, guest
+  role         String // owner, admin, member
   joined_at    DateTime  @default(now())
   workspace    Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
@@ -180,7 +180,7 @@ model ProjectMember {
   id         String  @id @default(cuid())
   project_id String
   user_id    String
-  role       String // owner, admin, editor, commenter, viewer
+  role       String // admin, member; ownership is Project.owner_id
   is_starred Boolean @default(false)
   project    Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
   user       User    @relation(fields: [user_id], references: [id], onDelete: Cascade)

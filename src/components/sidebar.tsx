@@ -29,8 +29,13 @@ import AddMemberModal from "./add-member-modal"
 import CreateClientModal from "./create-client-modal"
 import CreateProjectModal from "./create-project-modal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-
-const SIDEBAR_EXPANDED_CLIENTS_STORAGE_KEY = "sidebar-expanded-clients-v1"
+import {
+  LEGACY_SIDEBAR_EXPANDED_CLIENTS_STORAGE_KEY,
+  normalizeCollapsedClientIds,
+  resolveInitialCollapsedClientIds,
+  SIDEBAR_COLLAPSED_CLIENTS_STORAGE_KEY,
+  toggleCollapsedClientId,
+} from "@/lib/sidebar-state"
 
 interface SidebarProject {
   id: string
@@ -83,6 +88,8 @@ export default function Sidebar({
   const pathname = usePathname()
   const router = useRouter()
   const workspaceMenuRef = useRef<HTMLDivElement>(null)
+  const clientsRef = useRef(clients)
+  clientsRef.current = clients
   const [workspacePending, startWorkspaceTransition] = useTransition()
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
   const [isClientModalOpen, setIsClientModalOpen] = useState(false)
@@ -98,8 +105,8 @@ export default function Sidebar({
   const [clientsExpanded, setClientsExpanded] = useState(true)
   const [insightsExpanded, setInsightsExpanded] = useState(true)
   const [starredExpanded, setStarredExpanded] = useState(true)
-  const [expandedClientIds, setExpandedClientIds] = useState<Set<string>>(new Set())
-  const [hasLoadedExpandedState, setHasLoadedExpandedState] = useState(false)
+  const [collapsedClientIds, setCollapsedClientIds] = useState<Set<string>>(new Set())
+  const [hasLoadedCollapsedState, setHasLoadedCollapsedState] = useState(false)
 
   const projectClientOptions = useMemo(
     () => clients.map((client) => ({ id: client.id, name: client.name, color: client.color })),
@@ -107,37 +114,31 @@ export default function Sidebar({
   )
 
   useEffect(() => {
-    try {
-      const rawValue = window.localStorage.getItem(SIDEBAR_EXPANDED_CLIENTS_STORAGE_KEY)
+    setHasLoadedCollapsedState(false)
+    setCollapsedClientIds(resolveInitialCollapsedClientIds({
+      clientIds: clientsRef.current.map((client) => client.id),
+      collapsedStorageValue: window.localStorage.getItem(SIDEBAR_COLLAPSED_CLIENTS_STORAGE_KEY),
+      legacyExpandedStorageValue: window.localStorage.getItem(LEGACY_SIDEBAR_EXPANDED_CLIENTS_STORAGE_KEY),
+    }))
+    setHasLoadedCollapsedState(true)
+  }, [workspace?.id])
 
-      if (!rawValue) {
-        setExpandedClientIds(new Set(clients.map((client) => client.id)))
-        setHasLoadedExpandedState(true)
-        return
-      }
-
-      const parsedValue = JSON.parse(rawValue)
-      const validClientIds = new Set(clients.map((client) => client.id))
-      const expandedIds = Array.isArray(parsedValue)
-        ? parsedValue.filter((value): value is string => typeof value === "string" && validClientIds.has(value))
-        : []
-
-      setExpandedClientIds(new Set(expandedIds))
-    } catch {
-      setExpandedClientIds(new Set(clients.map((client) => client.id)))
-    } finally {
-      setHasLoadedExpandedState(true)
-    }
-  }, [clients])
+  const clientIdsKey = clients.map((client) => client.id).join("\u0000")
 
   useEffect(() => {
-    if (!hasLoadedExpandedState) return
+    if (!hasLoadedCollapsedState) return
+    const clientIds = clientIdsKey ? clientIdsKey.split("\u0000") : []
+    setCollapsedClientIds((current) => normalizeCollapsedClientIds(current, clientIds))
+  }, [clientIdsKey, hasLoadedCollapsedState])
+
+  useEffect(() => {
+    if (!hasLoadedCollapsedState) return
 
     window.localStorage.setItem(
-      SIDEBAR_EXPANDED_CLIENTS_STORAGE_KEY,
-      JSON.stringify(Array.from(expandedClientIds))
+      SIDEBAR_COLLAPSED_CLIENTS_STORAGE_KEY,
+      JSON.stringify(Array.from(collapsedClientIds))
     )
-  }, [expandedClientIds, hasLoadedExpandedState])
+  }, [collapsedClientIds, hasLoadedCollapsedState])
 
   useEffect(() => {
     const openMobileMenu = () => setIsMobileMenuOpen(true)
@@ -253,15 +254,7 @@ export default function Sidebar({
   const isActive = (href: string) => pathname?.startsWith(href)
 
   const toggleClient = (clientId: string) => {
-    setExpandedClientIds((previous) => {
-      const next = new Set(previous)
-      if (next.has(clientId)) {
-        next.delete(clientId)
-      } else {
-        next.add(clientId)
-      }
-      return next
-    })
+    setCollapsedClientIds((previous) => toggleCollapsedClientId(previous, clientId))
   }
 
   return (
@@ -534,7 +527,7 @@ export default function Sidebar({
             {clientsExpanded ? (
               <ul className="space-y-0.5">
                 {clients.map((client) => {
-                  const clientExpanded = expandedClientIds.has(client.id)
+                  const clientExpanded = !collapsedClientIds.has(client.id)
                   const directTasksHref = `/clients?clientId=${client.id}`
 
                   return (

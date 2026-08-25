@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { PROJECT_MEMBER_ROLES, WORKSPACE_ROLES, type WorkspaceRole } from "@/lib/project-membership"
 
 export type WorkspaceAccessLevel = "view" | "write" | "admin"
 export type ProjectAccessLevel = "view" | "comment" | "edit" | "manage"
@@ -19,16 +20,14 @@ export async function isSuperAdminUser(userId: string) {
   return Boolean(user?.is_super_admin)
 }
 
-// RBAC Simplified Roles
-const WORKSPACE_VIEW_ROLES = ["admin", "user"] as const
-const WORKSPACE_WRITE_ROLES = ["admin", "user"] as const
-const WORKSPACE_ADMIN_ROLES = ["admin"] as const
+const WORKSPACE_VIEW_ROLES: readonly WorkspaceRole[] = WORKSPACE_ROLES
+const WORKSPACE_WRITE_ROLES: readonly WorkspaceRole[] = WORKSPACE_ROLES
+const WORKSPACE_ADMIN_ROLES: readonly WorkspaceRole[] = ["owner", "admin"]
 
-const PROJECT_VIEW_ROLES = ["admin", "user"] as const
-const PROJECT_COMMENT_ROLES = ["admin", "user"] as const
-const PROJECT_EDIT_ROLES = ["admin", "user"] as const
+const PROJECT_VIEW_ROLES = PROJECT_MEMBER_ROLES
+const PROJECT_COMMENT_ROLES = PROJECT_MEMBER_ROLES
+const PROJECT_EDIT_ROLES = PROJECT_MEMBER_ROLES
 const PROJECT_MANAGE_ROLES = ["admin"] as const
-const TEAM_VIEW_ROLES = ["admin", "user"] as const
 
 function workspaceRolesFor(level: WorkspaceAccessLevel) {
   switch (level) {
@@ -86,59 +85,23 @@ export function projectAccessWhere(
   if (isSuperAdmin) return {}
 
   const projectRoles = projectRolesFor(level)
-  const workspaceAdminMembership = {
+  return {
     workspace: {
-      members: {
-        some: {
-          user_id: userId,
-          role: { in: [...WORKSPACE_ADMIN_ROLES] },
-        },
-      },
+      active_users: { some: { id: userId } },
+      members: { some: { user_id: userId, role: { in: [...WORKSPACE_VIEW_ROLES] } } },
     },
-  } satisfies Prisma.ProjectWhereInput
-
-  const baseRules: Prisma.ProjectWhereInput[] = [
-    { owner_id: userId },
-    { workspace: { owner_id: userId } },
-    workspaceAdminMembership,
-    {
-      members: {
-        some: {
-          user_id: userId,
-          role: { in: [...projectRoles] },
-        },
-      },
-    },
-  ]
-
-  if (level === "view") {
-    baseRules.push(
+    OR: [
+      { owner_id: userId },
       {
-        privacy: "workspace_visible",
-        workspace: {
-          members: {
-            some: {
-              user_id: userId,
-              role: { in: [...WORKSPACE_VIEW_ROLES] },
-            },
+        members: {
+          some: {
+            user_id: userId,
+            role: { in: [...projectRoles] },
           },
         },
       },
-      {
-        privacy: "team_visible",
-        team: {
-          members: {
-            some: {
-              user_id: userId,
-              role: { in: [...TEAM_VIEW_ROLES] },
-            },
-          },
-        },
-      }
-    )
+    ],
   }
-
-  return { OR: baseRules }
 }
 
 export function taskAccessWhere(
@@ -169,7 +132,7 @@ export function taskAccessWhere(
   ]
 
   if (level === "view" || level === "comment") {
-    rules.push({ reviewer_id: userId, quality_required: true })
+    rules.push({ project_id: null, reviewer_id: userId, quality_required: true })
   }
 
   return { OR: rules }
@@ -429,12 +392,30 @@ export async function canAccessWorkspace(userId: string, workspaceId: string, le
   return Boolean(workspace)
 }
 
+export async function canManageWorkspace(userId: string, workspaceId: string) {
+  return canAccessWorkspace(userId, workspaceId, "admin")
+}
+
 export async function canAccessClient(userId: string, clientId: string, level: WorkspaceAccessLevel = "view") {
   return Boolean(await getAccessibleClientContext(userId, clientId, level))
 }
 
 export async function canAccessProject(userId: string, projectId: string, level: ProjectAccessLevel = "view") {
   return Boolean(await getAccessibleProjectContext(userId, projectId, level))
+}
+
+export async function canManageProject(userId: string, projectId: string) {
+  return canAccessProject(userId, projectId, "manage")
+}
+
+export async function canManageProjectMembers(userId: string, projectId: string) {
+  return canManageProject(userId, projectId)
+}
+
+export async function canTransferProjectOwnership(userId: string, projectId: string) {
+  const context = await getAccessibleProjectContext(userId, projectId, "manage")
+  if (!context) return false
+  return (await isSuperAdminUser(userId)) || context.owner_id === userId
 }
 
 export async function canAccessSection(

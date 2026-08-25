@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   ExternalLink,
   FolderKanban,
+  Loader2,
   PencilLine,
   Plus,
   RotateCcw,
@@ -25,12 +26,14 @@ import {
   createTask,
   deleteClient,
   deleteProject,
+  getProjectMemberManagement,
   setClientArchived,
   updateProject,
   updateTask,
 } from "@/actions/server-actions"
 import type { EditableClient } from "@/components/create-client-modal"
 import AddClientMemberModal, { type ClientMember } from "@/components/add-client-member-modal"
+import type { ProjectMemberManagementData } from "@/components/project-members-manager"
 import { keepDirectClientTasks } from "@/lib/client-hierarchy"
 import {
   deriveProjectCompletionStatus,
@@ -41,6 +44,7 @@ import {
 
 const CreateClientModal = dynamic(() => import("@/components/create-client-modal"), { ssr: false })
 const CreateProjectModal = dynamic(() => import("@/components/create-project-modal"), { ssr: false })
+const ProjectMembersManager = dynamic(() => import("@/components/project-members-manager"), { ssr: false })
 const TaskDrawer = dynamic(() => import("@/components/task-drawer"), { ssr: false })
 
 type ClientScope = "active" | "archived"
@@ -533,6 +537,7 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
 }
 
 function EditProjectModal({ project, onCancel, onSaved }: { project: any | null; onCancel: () => void; onSaved: (project: any) => void }) {
+  const projectId = project?.id as string | undefined
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [deadline, setDeadline] = useState("")
@@ -540,8 +545,16 @@ function EditProjectModal({ project, onCancel, onSaved }: { project: any | null;
   const [color, setColor] = useState("#6366f1")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [activeTab, setActiveTab] = useState<"settings" | "members">("settings")
+  const [memberManagement, setMemberManagement] = useState<ProjectMemberManagementData | null>(null)
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [membersError, setMembersError] = useState("")
 
   useEffect(() => {
+    setActiveTab("settings")
+    setMemberManagement(null)
+    setMembersLoading(false)
+    setMembersError("")
     if (!project) return
     setName(project.name || "")
     setDescription(project.description || "")
@@ -550,6 +563,29 @@ function EditProjectModal({ project, onCancel, onSaved }: { project: any | null;
     setColor(project.color || "#6366f1")
     setError("")
   }, [project])
+
+  useEffect(() => {
+    if (!projectId || activeTab !== "members") return
+
+    let cancelled = false
+    setMembersLoading(true)
+    setMembersError("")
+
+    void getProjectMemberManagement(projectId)
+      .then((data) => {
+        if (!cancelled) setMemberManagement(data)
+      })
+      .catch(() => {
+        if (!cancelled) setMembersError("The project members could not be loaded")
+      })
+      .finally(() => {
+        if (!cancelled) setMembersLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, projectId])
 
   if (!project) return null
 
@@ -575,20 +611,71 @@ function EditProjectModal({ project, onCancel, onSaved }: { project: any | null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={(event) => event.target === event.currentTarget && onCancel()}>
-      <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-xl border border-[#3f3f46] bg-[#202023] p-6">
-        <div className="flex items-center justify-between gap-3"><h3 className="text-lg font-semibold text-white">Edit project</h3><button type="button" onClick={onCancel} className="text-xs text-[#a1a1aa] hover:text-white">Close</button></div>
-        <div className="mt-5 space-y-4">
-          <label className="block text-xs font-semibold text-[#a1a1aa]">Project name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={500} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
-          <label className="block text-xs font-semibold text-[#a1a1aa]">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className="mt-1.5 w-full resize-none rounded-md border border-[#3f3f46] bg-[#18181b] px-3 py-2 text-sm text-white outline-none focus:border-[#0075de]" /></label>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-semibold text-[#a1a1aa]">Deadline<input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
-            <label className="block text-xs font-semibold text-[#a1a1aa]">Default view<select value={defaultView} onChange={(event) => setDefaultView(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]"><option value="list">List</option><option value="board">Board</option><option value="calendar">Calendar</option><option value="timeline">Timeline</option></select></label>
-          </div>
-          <label className="block text-xs font-semibold text-[#a1a1aa]">Color<input type="color" value={color} onChange={(event) => setColor(event.target.value)} className="mt-1.5 h-10 w-full cursor-pointer rounded-md border border-[#3f3f46] bg-[#18181b] p-1" /></label>
+      <div role="dialog" aria-modal="true" aria-labelledby="edit-project-title" className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-[#3f3f46] bg-[#202023]">
+        <div className="flex items-center justify-between gap-3 border-b border-[#3f3f46] px-6 py-4">
+          <h3 id="edit-project-title" className="text-lg font-semibold text-white">Edit project</h3>
+          <button type="button" onClick={onCancel} className="text-xs text-[#a1a1aa] hover:text-white">Close</button>
         </div>
-        {error ? <p className="mt-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</p> : null}
-        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={saving} className="rounded-md border border-[#3f3f46] px-4 py-2 text-xs text-white disabled:opacity-50">Cancel</button><button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-[#0075de] px-5 py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button></div>
-      </form>
+
+        <div role="tablist" aria-label="Edit project sections" className="flex gap-1 border-b border-[#3f3f46] px-6 pt-2">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "settings"}
+            onClick={() => setActiveTab("settings")}
+            className={`border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors ${activeTab === "settings" ? "border-[#0075de] text-white" : "border-transparent text-[#a1a1aa] hover:text-white"}`}
+          >
+            Project settings
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "members"}
+            onClick={() => setActiveTab("members")}
+            className={`border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors ${activeTab === "members" ? "border-[#0075de] text-white" : "border-transparent text-[#a1a1aa] hover:text-white"}`}
+          >
+            Members
+          </button>
+        </div>
+
+        {activeTab === "settings" ? (
+          <form onSubmit={handleSubmit} className="min-h-0 overflow-y-auto p-6">
+            <div className="space-y-4">
+              <label className="block text-xs font-semibold text-[#a1a1aa]">Project name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={500} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
+              <label className="block text-xs font-semibold text-[#a1a1aa]">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className="mt-1.5 w-full resize-none rounded-md border border-[#3f3f46] bg-[#18181b] px-3 py-2 text-sm text-white outline-none focus:border-[#0075de]" /></label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-[#a1a1aa]">Deadline<input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
+                <label className="block text-xs font-semibold text-[#a1a1aa]">Default view<select value={defaultView} onChange={(event) => setDefaultView(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]"><option value="list">List</option><option value="board">Board</option><option value="calendar">Calendar</option><option value="timeline">Timeline</option></select></label>
+              </div>
+              <label className="block text-xs font-semibold text-[#a1a1aa]">Color<input type="color" value={color} onChange={(event) => setColor(event.target.value)} className="mt-1.5 h-10 w-full cursor-pointer rounded-md border border-[#3f3f46] bg-[#18181b] p-1" /></label>
+            </div>
+            {error ? <p className="mt-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</p> : null}
+            <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={saving} className="rounded-md border border-[#3f3f46] px-4 py-2 text-xs text-white disabled:opacity-50">Cancel</button><button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-[#0075de] px-5 py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button></div>
+          </form>
+        ) : (
+          <div role="tabpanel" className="min-h-0 overflow-y-auto p-6">
+            {membersLoading ? (
+              <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-[#a1a1aa]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading project members…
+              </div>
+            ) : membersError ? (
+              <p role="alert" className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{membersError}</p>
+            ) : memberManagement ? (
+              <ProjectMembersManager
+                projectId={project.id}
+                canManage={memberManagement.canManage}
+                canTransferOwnership={memberManagement.canTransferOwnership}
+                ownerId={memberManagement.ownerId}
+                members={memberManagement.members}
+                workspaceMembers={memberManagement.workspaceMembers}
+                layout="compact"
+                reloadData={() => getProjectMemberManagement(project.id)}
+              />
+            ) : null}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

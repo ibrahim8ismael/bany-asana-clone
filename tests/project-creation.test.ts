@@ -10,12 +10,21 @@ test("ordinary project creation builds a Project linked to the selected client a
     workspaceId: "workspace-1",
     clientId: "client-1",
     ownerId: "user-1",
+    members: [
+      { userId: "user-2", role: "admin" },
+      { userId: "user-3", role: "member" },
+    ],
   })
 
   assert.equal(data.name, "Website Launch")
   assert.equal(data.workspace_id, "workspace-1")
   assert.equal(data.client_id, "client-1")
   assert.equal(data.status, "incomplete")
+  assert.deepEqual(data.members.create, [
+    { user_id: "user-1", role: "admin" },
+    { user_id: "user-2", role: "admin" },
+    { user_id: "user-3", role: "member" },
+  ])
   assert.equal("task" in data, false)
   assert.equal("tasks" in data, false)
   assert.deepEqual(DEFAULT_PROJECT_SECTIONS, [

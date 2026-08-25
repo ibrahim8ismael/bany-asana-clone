@@ -1,12 +1,13 @@
 "use server"
 
-import type { Prisma } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 import { getServerSession } from "next-auth"
 import { revalidatePath } from "next/cache"
 import { authOptions } from "@/lib/auth"
 import { logActivity } from "@/lib/activity"
 import {
   canAccessWorkspace,
+  canTransferProjectOwnership,
   getAccessibleClientContext,
   getAccessibleProjectContext,
   getAccessibleSectionContext,
@@ -18,11 +19,20 @@ import {
   taskAccessWhere,
   workspaceAccessWhere,
 } from "@/lib/permissions"
+import type { ProjectAccessLevel } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
 import { parseTaskUpdateInput } from "@/lib/task-input"
 import { resolveTaskPlacement } from "@/lib/task-placement"
 import { buildProjectCreateData, DEFAULT_PROJECT_SECTIONS } from "@/lib/project-creation"
+import {
+  effectiveProjectRole,
+  isProjectRole,
+  validateProjectMemberAssignments,
+  type ProjectMemberAssignment,
+  type ProjectRole,
+  type WorkspaceRole,
+} from "@/lib/project-membership"
 import {
   deriveProjectCompletionStatus,
   isProjectStatus,
@@ -65,12 +75,6 @@ type ProjectHistorySnapshot = {
   status: string
   color: string | null
   default_view: string
-}
-
-const PROJECT_MANAGEABLE_ROLES = ["admin", "user"] as const
-
-function isManageableProjectRole(role: string): role is (typeof PROJECT_MANAGEABLE_ROLES)[number] {
-  return PROJECT_MANAGEABLE_ROLES.includes(role as (typeof PROJECT_MANAGEABLE_ROLES)[number])
 }
 
 async function getSessionUserId() {
@@ -305,7 +309,11 @@ function normalizeDueDate(dueDate: Date | string | null | undefined) {
 
 async function ensureWorkspaceMember(workspaceId: string, userId: string) {
   const membership = await prisma.workspaceMember.findFirst({
-    where: { workspace_id: workspaceId, user_id: userId },
+    where: {
+      workspace_id: workspaceId,
+      user_id: userId,
+      role: { in: ["owner", "admin", "member"] },
+    },
     select: { id: true },
   })
 
@@ -412,9 +420,9 @@ export async function updateTaskPosition(
     if (!userId) return { error: "Unauthorized" }
 
     const [taskContext, destinationSection, sourceSection] = await Promise.all([
-      getAccessibleTaskContext(userId, taskId, "edit"),
-      getAccessibleSectionContext(userId, newSectionId, "edit"),
-      getAccessibleSectionContext(userId, sourceSectionId, "edit"),
+      getAccessibleTaskContext(userId, taskId, "manage"),
+      getAccessibleSectionContext(userId, newSectionId, "manage"),
+      getAccessibleSectionContext(userId, sourceSectionId, "manage"),
     ])
 
     if (!taskContext || !destinationSection || !sourceSection) {
@@ -656,6 +664,7 @@ export async function createClient(data: {
     })
 
     revalidatePath("/")
+    revalidatePath("/", "layout")
     revalidatePath("/clients")
     revalidatePath("/portfolios")
     return { success: true, client }
@@ -784,6 +793,7 @@ export async function createProject(data: {
   workspace_id?: string
   color?: string
   deadline?: Date | string | null
+  members?: ProjectMemberAssignment[]
 }) {
   try {
     const userId = await getSessionUserId()
@@ -794,6 +804,13 @@ export async function createProject(data: {
     if (clientContext.archived) return { error: "Restore this client before adding a project" }
 
     const workspaceId = clientContext.workspace_id
+    const [activeWorkspace, isSuperAdmin] = await Promise.all([
+      getActiveWorkspaceForUser(userId),
+      isSuperAdminUser(userId),
+    ])
+    if (!isSuperAdmin && (!activeWorkspace || activeWorkspace.id !== workspaceId)) {
+      return { error: "Project must belong to your active workspace" }
+    }
     if (data.workspace_id && data.workspace_id !== workspaceId) {
       return { error: "Client does not belong to that workspace" }
     }
@@ -804,8 +821,29 @@ export async function createProject(data: {
       return { error: "Invalid default project view" }
     }
 
+    const parsedMembers = validateProjectMemberAssignments(data.members, userId)
+    if ("error" in parsedMembers) return { error: parsedMembers.error }
+    const memberAssignments = parsedMembers.assignments
+
     const allowedWorkspace = await canAccessWorkspace(userId, workspaceId, "write")
     if (!allowedWorkspace) return { error: "Not found" }
+    if (!await ensureWorkspaceMember(workspaceId, userId)) {
+      return { error: "The project owner must belong to the selected client's workspace" }
+    }
+
+    if (memberAssignments.length > 0) {
+      const eligibleMemberCount = await prisma.workspaceMember.count({
+        where: {
+          workspace_id: workspaceId,
+          user_id: { in: memberAssignments.map((member) => member.userId) },
+          role: { in: ["owner", "admin", "member"] },
+        },
+      })
+
+      if (eligibleMemberCount !== memberAssignments.length) {
+        return { error: "Every project member must belong to the selected client's workspace" }
+      }
+    }
 
     const { project, sections } = await prisma.$transaction(async (tx) => {
       const createdProject = await tx.project.create({
@@ -818,6 +856,7 @@ export async function createProject(data: {
           clientId: clientContext.id,
           ownerId: userId,
           color: data.color,
+          members: memberAssignments,
         }),
       })
 
@@ -844,10 +883,16 @@ export async function createProject(data: {
       entityType: "project",
       entityId: project.id,
       action: "project_created",
-      meta: { projectId: project.id, name: project.name, clientId: clientContext.id },
+      meta: {
+        projectId: project.id,
+        name: project.name,
+        clientId: clientContext.id,
+        memberCount: memberAssignments.length + 1,
+      },
     })
 
     revalidatePath("/")
+    revalidatePath("/", "layout")
     revalidatePath("/home")
     revalidatePath("/clients")
     revalidatePath("/portfolios")
@@ -873,7 +918,7 @@ export async function updateProject(
     const userId = await getSessionUserId()
     if (!userId) return { error: "Unauthorized" }
 
-    const projectContext = await getAccessibleProjectContext(userId, projectId, "edit")
+    const projectContext = await getAccessibleProjectContext(userId, projectId, "manage")
     if (!projectContext) return { error: "Not found" }
 
     const beforeProject = await getProjectHistorySnapshot(projectId)
@@ -1021,102 +1066,216 @@ export async function deleteProject(projectId: string) {
   }
 }
 
-export async function addProjectMember(data: {
+export async function addProjectMembers(data: {
   projectId: string
-  userId: string
-  role: "admin" | "user"
+  members: ProjectMemberAssignment[]
 }) {
   try {
     const actorId = await getSessionUserId()
     if (!actorId) return { error: "Unauthorized" }
-    if (!isManageableProjectRole(data.role)) return { error: "Invalid role" }
 
     const projectContext = await getAccessibleProjectContext(actorId, data.projectId, "manage")
     if (!projectContext) return { error: "Not found" }
 
-    const [workspaceMemberExists, targetUser, existingMembership] = await Promise.all([
-      ensureWorkspaceMember(projectContext.workspace_id, data.userId),
+    const parsedMembers = validateProjectMemberAssignments(data.members, projectContext.owner_id)
+    if ("error" in parsedMembers) return { error: parsedMembers.error }
+    const memberAssignments = parsedMembers.assignments
+    if (memberAssignments.length === 0) return { error: "Select at least one workspace member" }
+
+    const userIds = memberAssignments.map((member) => member.userId)
+    const workspaceMemberships = await prisma.workspaceMember.findMany({
+      where: {
+        workspace_id: projectContext.workspace_id,
+        user_id: { in: userIds },
+        role: { in: ["owner", "admin", "member"] },
+      },
+      select: {
+        user: { select: { id: true, full_name: true } },
+      },
+    })
+
+    if (workspaceMemberships.length !== memberAssignments.length) {
+      return { error: "Every project member must belong to the project workspace" }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const existingMemberships = await tx.projectMember.count({
+        where: {
+          project_id: projectContext.id,
+          user_id: { in: userIds },
+        },
+      })
+      if (existingMemberships > 0) throw new Error("One or more selected users are already part of this project")
+
+      await tx.projectMember.createMany({
+        data: memberAssignments.map((member) => ({
+          project_id: projectContext.id,
+          user_id: member.userId,
+          role: member.role,
+        })),
+      })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+
+    const userNames = new Map(workspaceMemberships.map((membership) => [membership.user.id, membership.user.full_name]))
+
+    await logProjectHistoryEntries(
+      projectContext.workspace_id,
+      actorId,
+      projectContext.id,
+      memberAssignments.map((member) => ({
+        action: "project_member_added",
+        meta: {
+          source: "manual",
+          memberId: member.userId,
+          memberName: userNames.get(member.userId) || "Workspace member",
+          to: member.role,
+        },
+      })),
+    )
+
+    revalidateMany([...getTaskRevalidationPaths(projectContext.id, projectContext.client_id), "/inbox"])
+    return { success: true, addedCount: memberAssignments.length }
+  } catch (error: unknown) {
+    console.error("Failed to add project members:", error)
+    return { error: getErrorMessage(error) || "Failed to add project members" }
+  }
+}
+
+export async function addProjectMember(data: {
+  projectId: string
+  userId: string
+  role: ProjectRole
+}) {
+  return addProjectMembers({
+    projectId: data.projectId,
+    members: [{ userId: data.userId, role: data.role }],
+  })
+}
+
+export async function transferProjectOwnership(data: { projectId: string; userId: string }) {
+  try {
+    const actorId = await getSessionUserId()
+    if (!actorId) return { error: "Unauthorized" }
+
+    const projectContext = await getAccessibleProjectContext(actorId, data.projectId, "manage")
+    if (!projectContext) return { error: "Not found" }
+    const isSuperAdmin = await isSuperAdminUser(actorId)
+    if (!isSuperAdmin && projectContext.owner_id !== actorId) {
+      return { error: "Only the project owner can transfer ownership" }
+    }
+    if (data.userId === projectContext.owner_id) return { error: "That user already owns the project" }
+
+    const [targetUser, targetWorkspaceMembership, previousOwnerWorkspaceMembership] = await Promise.all([
       prisma.user.findUnique({ where: { id: data.userId }, select: { id: true, full_name: true } }),
-      prisma.projectMember.findUnique({
+      prisma.workspaceMember.findUnique({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: projectContext.workspace_id,
+            user_id: data.userId,
+          },
+        },
+        select: { id: true },
+      }),
+      prisma.workspaceMember.findUnique({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: projectContext.workspace_id,
+            user_id: projectContext.owner_id,
+          },
+        },
+        select: { id: true },
+      }),
+    ])
+    if (!targetUser || !targetWorkspaceMembership) return { error: "New owner must belong to the project workspace" }
+    if (!previousOwnerWorkspaceMembership) return { error: "Current project owner must belong to the project workspace" }
+
+    const previousOwner = await prisma.user.findUnique({
+      where: { id: projectContext.owner_id },
+      select: { id: true, full_name: true },
+    })
+    if (!previousOwner) return { error: "Current project owner was not found" }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.projectMember.upsert({
         where: {
           project_id_user_id: {
             project_id: projectContext.id,
             user_id: data.userId,
           },
         },
-        select: { id: true },
-      }),
-    ])
-
-    if (!workspaceMemberExists || !targetUser) return { error: "User must belong to the workspace" }
-    if (existingMembership) return { error: "User is already part of this project" }
-
-    await prisma.projectMember.create({
-      data: {
-        project_id: projectContext.id,
-        user_id: data.userId,
-        role: data.role,
-      },
-    })
+        create: { project_id: projectContext.id, user_id: data.userId, role: "admin" },
+        update: { role: "admin" },
+      })
+      await tx.projectMember.upsert({
+        where: {
+          project_id_user_id: {
+            project_id: projectContext.id,
+            user_id: previousOwner.id,
+          },
+        },
+        create: { project_id: projectContext.id, user_id: previousOwner.id, role: "admin" },
+        update: { role: "admin" },
+      })
+      await tx.project.update({
+        where: { id: projectContext.id },
+        data: { owner_id: data.userId },
+      })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     await logProjectHistoryEntries(projectContext.workspace_id, actorId, projectContext.id, [
       {
-        action: "project_member_added",
+        action: "project_owner_transferred",
         meta: {
           source: "manual",
-          memberId: data.userId,
-          memberName: targetUser.full_name,
-          to: data.role,
+          from: previousOwner.id,
+          fromName: previousOwner.full_name,
+          to: targetUser.id,
+          toName: targetUser.full_name,
         },
       },
     ])
 
     revalidateMany([...getTaskRevalidationPaths(projectContext.id, projectContext.client_id), "/inbox"])
-    return { success: true }
+    return { success: true, ownerId: data.userId }
   } catch (error: unknown) {
-    console.error("Failed to add project member:", error)
-    return { error: getErrorMessage(error) || "Failed to add project member" }
+    console.error("Failed to transfer project ownership:", error)
+    return { error: getErrorMessage(error) || "Failed to transfer project ownership" }
   }
 }
 
 export async function updateProjectMemberRole(data: {
   projectId: string
   userId: string
-  role: "admin" | "user"
+  role: ProjectRole
 }) {
   try {
     const actorId = await getSessionUserId()
     if (!actorId) return { error: "Unauthorized" }
-    if (!isManageableProjectRole(data.role)) return { error: "Invalid role" }
+    if (!isProjectRole(data.role)) return { error: "Invalid role" }
 
     const projectContext = await getAccessibleProjectContext(actorId, data.projectId, "manage")
     if (!projectContext) return { error: "Not found" }
-    if (data.userId === projectContext.owner_id) return { error: "Project owner role cannot be changed" }
-
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        project_id_user_id: {
-          project_id: projectContext.id,
-          user_id: data.userId,
-        },
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            full_name: true,
+    if (data.userId === projectContext.owner_id) return { error: "Transfer ownership before changing the owner role" }
+    if (!await ensureWorkspaceMember(projectContext.workspace_id, data.userId)) {
+      return { error: "Project members must belong to the project workspace" }
+    }
+    const membership = await prisma.$transaction(async (tx) => {
+      const current = await tx.projectMember.findUnique({
+        where: {
+          project_id_user_id: {
+            project_id: projectContext.id,
+            user_id: data.userId,
           },
         },
-      },
-    })
+        include: { user: { select: { id: true, full_name: true } } },
+      })
 
-    if (!membership) return { error: "Project member not found" }
-    if (membership.role === data.role) return { success: true }
+      if (!current) throw new Error("Project member not found")
+      if (current.role === data.role) return current
 
-    await prisma.projectMember.update({
-      where: { id: membership.id },
-      data: { role: data.role },
-    })
+      await tx.projectMember.update({ where: { id: current.id }, data: { role: data.role } })
+      return current
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     await logProjectHistoryEntries(projectContext.workspace_id, actorId, projectContext.id, [
       {
@@ -1146,28 +1305,23 @@ export async function removeProjectMember(data: { projectId: string; userId: str
 
     const projectContext = await getAccessibleProjectContext(actorId, data.projectId, "manage")
     if (!projectContext) return { error: "Not found" }
-    if (data.userId === projectContext.owner_id) return { error: "Project owner cannot be removed" }
-
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        project_id_user_id: {
-          project_id: projectContext.id,
-          user_id: data.userId,
-        },
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            full_name: true,
+    if (data.userId === projectContext.owner_id) return { error: "Transfer ownership before removing the project owner" }
+    const membership = await prisma.$transaction(async (tx) => {
+      const current = await tx.projectMember.findUnique({
+        where: {
+          project_id_user_id: {
+            project_id: projectContext.id,
+            user_id: data.userId,
           },
         },
-      },
-    })
+        include: { user: { select: { id: true, full_name: true } } },
+      })
 
-    if (!membership) return { error: "Project member not found" }
+      if (!current) throw new Error("Project member not found")
 
-    await prisma.projectMember.delete({ where: { id: membership.id } })
+      await tx.projectMember.delete({ where: { id: current.id } })
+      return current
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     await logProjectHistoryEntries(projectContext.workspace_id, actorId, projectContext.id, [
       {
@@ -1240,7 +1394,7 @@ export async function convertDirectTaskToProject(
           members: {
             create: {
               user_id: userId,
-              role: "owner",
+              role: "admin",
             },
           },
         },
@@ -1354,7 +1508,7 @@ export async function createSection(data: { name: string; project_id?: string; u
     if (data.user_id && data.user_id !== userId) return { error: "Not found" }
 
     const projectContext = data.project_id
-      ? await getAccessibleProjectContext(userId, data.project_id, "edit")
+      ? await getAccessibleProjectContext(userId, data.project_id, "manage")
       : null
 
     if (data.project_id && !projectContext) return { error: "Not found" }
@@ -1392,7 +1546,7 @@ export async function deleteSection(sectionId: string) {
     const userId = await getSessionUserId()
     if (!userId) return { error: "Unauthorized" }
 
-    const sectionContext = await getAccessibleSectionContext(userId, sectionId, "edit")
+    const sectionContext = await getAccessibleSectionContext(userId, sectionId, "manage")
     if (!sectionContext) return { error: "Not found" }
 
     let replacementSectionId: string | null = null
@@ -1449,7 +1603,12 @@ export async function updateTask(
     if (!parsedInput.success) return { error: parsedInput.error }
     const data = parsedInput.data
 
-    const taskContext = await getAccessibleTaskContext(userId, taskId, "edit")
+    const administersTask = data.assignee_id !== undefined
+      || data.project_id !== undefined
+      || data.client_id !== undefined
+      || data.section_id !== undefined
+    const requiredAccess: ProjectAccessLevel = administersTask ? "manage" : "edit"
+    const taskContext = await getAccessibleTaskContext(userId, taskId, requiredAccess)
     if (!taskContext) return { error: "Not found" }
     const beforeSnapshot = await getTaskHistorySnapshot(taskId)
     if (!beforeSnapshot) return { error: "Not found" }
@@ -1494,11 +1653,11 @@ export async function updateTask(
     const nextProjectContext =
       data.project_id === undefined
         ? taskContext.project_id
-          ? await getAccessibleProjectContext(userId, taskContext.project_id, "edit")
+          ? await getAccessibleProjectContext(userId, taskContext.project_id, requiredAccess)
           : null
         : data.project_id === null
           ? null
-          : await getAccessibleProjectContext(userId, data.project_id, "edit")
+          : await getAccessibleProjectContext(userId, data.project_id, requiredAccess)
 
     if (data.project_id && !nextProjectContext) return { error: "Not found" }
 
@@ -1516,7 +1675,7 @@ export async function updateTask(
     if (requestedClientId && !nextClientContext) return { error: "Not found" }
 
     const nextSectionContext = data.section_id
-      ? await getAccessibleSectionContext(userId, data.section_id, "edit")
+      ? await getAccessibleSectionContext(userId, data.section_id, requiredAccess === "manage" ? "manage" : "edit")
       : null
 
     if (data.section_id && !nextSectionContext) return { error: "Not found" }
@@ -1556,6 +1715,22 @@ export async function updateTask(
     if (data.assignee_id !== undefined && data.assignee_id !== null) {
       const assigneeAllowed = await ensureWorkspaceMember(resolvedWorkspaceId, data.assignee_id)
       if (!assigneeAllowed) return { error: "Not found" }
+    }
+
+    const resolvedAssigneeId = data.assignee_id === undefined
+      ? qualityWorkflow.assignee_id
+      : data.assignee_id
+    if (resolvedProjectId && resolvedAssigneeId) {
+      const projectMembership = await prisma.projectMember.findUnique({
+        where: {
+          project_id_user_id: {
+            project_id: resolvedProjectId,
+            user_id: resolvedAssigneeId,
+          },
+        },
+        select: { id: true },
+      })
+      if (!projectMembership) return { error: "Assignee must be a member of this project" }
     }
 
     const movedProjectQualityPolicy = data.project_id !== undefined && resolvedProjectId
@@ -1785,7 +1960,7 @@ export async function deleteSubtask(taskId: string) {
     const userId = await getSessionUserId()
     if (!userId) return { error: "Unauthorized" }
 
-    const subtask = await getAccessibleTaskContext(userId, taskId, "edit")
+    const subtask = await getAccessibleTaskContext(userId, taskId, "manage")
     if (!subtask) return { error: "Not found" }
     if (!subtask.parent_task_id) return { error: "Not found" }
 
@@ -1811,6 +1986,46 @@ export async function deleteSubtask(taskId: string) {
     revalidateMany(getTaskRevalidationPaths(deleted.project_id, deleted.client_id))
     return { success: true, taskId: deleted.id }
   } catch (error) {
+    return { error: getErrorMessage(error) }
+  }
+}
+
+export async function getTaskCapabilities(taskId: string) {
+  const userId = await getSessionUserId()
+  if (!userId) return { canManage: false }
+  return { canManage: Boolean(await getAccessibleTaskContext(userId, taskId, "manage")) }
+}
+
+export async function deleteTask(taskId: string) {
+  try {
+    const userId = await getSessionUserId()
+    if (!userId) return { error: "Unauthorized" }
+
+    const taskContext = await getAccessibleTaskContext(userId, taskId, "manage")
+    if (!taskContext) return { error: "Not found" }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { id: true, title: true, workspace_id: true, project_id: true, client_id: true },
+    })
+    if (!task) return { error: "Not found" }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.task.updateMany({ where: { parent_task_id: task.id }, data: { parent_task_id: null } })
+      await tx.task.delete({ where: { id: task.id } })
+    })
+
+    if (task.project_id) {
+      await logProjectHistoryEntries(task.workspace_id, userId, task.project_id, [{
+        action: "project_task_removed",
+        meta: { source: "manual", taskId: task.id, title: task.title },
+      }])
+      await syncProjectCompletionState(task.project_id, userId)
+    }
+
+    revalidateMany(getTaskRevalidationPaths(task.project_id, task.client_id))
+    return { success: true, taskId: task.id }
+  } catch (error: unknown) {
     return { error: getErrorMessage(error) }
   }
 }
@@ -1933,10 +2148,80 @@ export async function getProjectActivity(projectId: string) {
   }
 }
 
+export async function getProjectCreationMemberOptions(clientId: string) {
+  const emptyResult = {
+    success: false as const,
+    ownerId: null,
+    workspaceId: null,
+    members: [],
+  }
+
+  try {
+    const userId = await getSessionUserId()
+    if (!userId) return { ...emptyResult, error: "Unauthorized" }
+
+    const clientContext = await getAccessibleClientContext(userId, clientId, "write")
+    if (!clientContext) return { ...emptyResult, error: "Client not found" }
+    if (clientContext.archived) return { ...emptyResult, error: "Restore this client before adding a project" }
+
+    const [activeWorkspace, isSuperAdmin, creatorMembership] = await Promise.all([
+      getActiveWorkspaceForUser(userId),
+      isSuperAdminUser(userId),
+      prisma.workspaceMember.findFirst({
+        where: {
+          workspace_id: clientContext.workspace_id,
+          user_id: userId,
+          role: { in: ["owner", "admin", "member"] },
+        },
+        select: { id: true },
+      }),
+    ])
+
+    if (!isSuperAdmin && activeWorkspace?.id !== clientContext.workspace_id) {
+      return { ...emptyResult, error: "Project must belong to your active workspace" }
+    }
+    if (!creatorMembership) {
+      return { ...emptyResult, error: "The project owner must belong to the selected client's workspace" }
+    }
+
+    const workspaceMembers = await prisma.workspaceMember.findMany({
+      where: {
+        workspace_id: clientContext.workspace_id,
+        role: { in: ["owner", "admin", "member"] },
+      },
+      select: {
+        role: true,
+        user: {
+          select: {
+            id: true,
+            full_name: true,
+            email: true,
+            avatar_url: true,
+          },
+        },
+      },
+      orderBy: [{ user: { full_name: "asc" } }, { joined_at: "asc" }],
+    })
+
+    return {
+      success: true as const,
+      ownerId: userId,
+      workspaceId: clientContext.workspace_id,
+      members: workspaceMembers.map((membership) => ({
+        ...membership.user,
+        workspaceRole: membership.role as WorkspaceRole,
+      })),
+    }
+  } catch (error) {
+    console.error("Failed to get project creation members:", error)
+    return { ...emptyResult, error: "Failed to load workspace members" }
+  }
+}
+
 export async function getProjectMemberManagement(projectId: string) {
   try {
     const userId = await getSessionUserId()
-    if (!userId) return { canManage: false, members: [], workspaceMembers: [] }
+    if (!userId) return { canManage: false, canTransferOwnership: false, ownerId: null, members: [], workspaceMembers: [] }
     const isSuperAdmin = await isSuperAdminUser(userId)
 
     const [projectContext, canManageProject, project] = await Promise.all([
@@ -1948,6 +2233,7 @@ export async function getProjectMemberManagement(projectId: string) {
           ...projectAccessWhere(userId, "view", isSuperAdmin),
         },
         select: {
+          owner_id: true,
           members: {
             include: {
               user: {
@@ -1965,13 +2251,14 @@ export async function getProjectMemberManagement(projectId: string) {
     ])
 
     if (!projectContext || !project) {
-      return { canManage: false, members: [], workspaceMembers: [] }
+      return { canManage: false, canTransferOwnership: false, ownerId: null, members: [], workspaceMembers: [] }
     }
 
     const workspaceMembers = canManageProject
       ? await prisma.workspaceMember.findMany({
-          where: { workspace_id: projectContext.workspace_id, role: { not: "guest" } },
+          where: { workspace_id: projectContext.workspace_id, role: { in: ["owner", "admin", "member"] } },
           select: {
+            role: true,
             user: {
               select: {
                 id: true,
@@ -1987,19 +2274,33 @@ export async function getProjectMemberManagement(projectId: string) {
 
     return {
       canManage: Boolean(canManageProject),
-      members: [...project.members].sort((left, right) => {
-        const priority = { owner: 0, admin: 1, editor: 2, commenter: 3, viewer: 4 } as Record<string, number>
-        const leftRank = priority[left.role] ?? 99
-        const rightRank = priority[right.role] ?? 99
+      ownerId: project.owner_id,
+      canTransferOwnership: Boolean(await canTransferProjectOwnership(userId, projectId)),
+      members: project.members.map((member) => ({
+        ...member,
+        role: member.role as ProjectRole,
+        effectiveRole: effectiveProjectRole({
+          userId: member.user.id,
+          ownerId: project.owner_id,
+          membershipRole: member.role,
+        }) || "member",
+        isOwner: member.user.id === project.owner_id,
+      })).sort((left, right) => {
+        const priority = { owner: 0, admin: 1, member: 2 } as Record<string, number>
+        const leftRank = priority[left.effectiveRole] ?? 99
+        const rightRank = priority[right.effectiveRole] ?? 99
 
         if (leftRank !== rightRank) return leftRank - rightRank
         return left.user.full_name.localeCompare(right.user.full_name)
       }),
-      workspaceMembers: workspaceMembers.map((membership) => membership.user),
+      workspaceMembers: workspaceMembers.map((membership) => ({
+        ...membership.user,
+        workspaceRole: membership.role as WorkspaceRole,
+      })),
     }
   } catch (error) {
     console.error("Failed to get project member management data:", error)
-    return { canManage: false, members: [], workspaceMembers: [] }
+    return { canManage: false, canTransferOwnership: false, ownerId: null, members: [], workspaceMembers: [] }
   }
 }
 
@@ -2080,22 +2381,39 @@ export async function getAssignableUsers(taskId: string) {
     const taskContext = await getAccessibleTaskContext(userId, taskId, "view")
     if (!taskContext) return []
 
-    const members = await prisma.workspaceMember.findMany({
-      where: {
-        workspace_id: taskContext.workspace_id,
-        role: { not: "guest" },
-      },
-      select: {
-        user: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-            avatar_url: true,
+    const members = taskContext.project_id
+      ? await prisma.projectMember.findMany({
+          where: {
+            project_id: taskContext.project_id,
+            role: { in: ["admin", "member"] },
           },
-        },
-      },
-    })
+          select: {
+            user: {
+              select: {
+                id: true,
+                full_name: true,
+                email: true,
+                avatar_url: true,
+              },
+            },
+          },
+        })
+      : await prisma.workspaceMember.findMany({
+          where: {
+            workspace_id: taskContext.workspace_id,
+            role: { in: ["owner", "admin", "member"] },
+          },
+          select: {
+            user: {
+              select: {
+                id: true,
+                full_name: true,
+                email: true,
+                avatar_url: true,
+              },
+            },
+          },
+        })
 
     return members.map((member) => member.user).sort((a, b) => a.full_name.localeCompare(b.full_name))
   } catch (error) {
@@ -2197,7 +2515,7 @@ export async function getWorkspaceMembers() {
     const members = await prisma.workspaceMember.findMany({
       where: {
         workspace_id: workspace.id,
-        role: { not: "guest" },
+        role: { in: ["owner", "admin", "member"] },
       },
       select: {
         user: {

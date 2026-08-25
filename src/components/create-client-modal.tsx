@@ -94,12 +94,10 @@ export default function CreateClientModal({
 
       if (onSuccess) {
         onSuccess(result.client)
-      } else if (isEditing) {
-        router.refresh()
-      } else {
+      } else if (!isEditing) {
         router.push(`/clients?clientId=${result.client.id}`)
-        router.refresh()
       }
+      router.refresh()
 
       return
     }

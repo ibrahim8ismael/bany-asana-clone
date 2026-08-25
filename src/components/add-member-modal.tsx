@@ -32,7 +32,7 @@ export default function AddMemberModal({ isOpen, onClose, workspaces, initialWor
     fullName: "",
     email: "",
     password: "",
-    role: "member" as "admin" | "member" | "guest",
+    role: "member" as "admin" | "member",
     workspaceId: preferredWorkspaceId,
   })
 
@@ -125,12 +125,11 @@ export default function AddMemberModal({ isOpen, onClose, workspaces, initialWor
                 id="role"
                 title="Select user role"
                 value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value as "admin" | "member" | "guest" })}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value as "admin" | "member" })}
                 className="h-10 w-full rounded-md border border-white/10 bg-[#252628] px-3 text-sm text-white outline-none [color-scheme:dark] focus:border-blue-500"
               >
                 <option className="bg-[#252628] text-white" value="member">Member</option>
                 <option className="bg-[#252628] text-white" value="admin">Admin</option>
-                <option className="bg-[#252628] text-white" value="guest">Guest</option>
               </select>
             </div>
 

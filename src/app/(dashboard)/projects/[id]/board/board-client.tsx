@@ -7,19 +7,26 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd"
 import { Card } from "@/components/ui/card"
 import { format, isPast, isToday } from "date-fns"
 import { MessageSquare, CheckSquare, Plus, X, Calendar } from "lucide-react"
-import { createSection, createTask, updateTaskPosition } from "@/actions/server-actions"
+import { createSection, createTask, updateTask, updateTaskPosition } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
-import { getTaskWorkflowLabel } from "@/lib/workflow"
+import {
+  getTaskWorkflowLabel,
+  TASK_WORKFLOW_STAGES,
+  validateManualTaskTransition,
+  type TaskWorkflowStageId,
+} from "@/lib/workflow"
 
 const TaskDrawer = dynamic(() => import("@/components/task-drawer"), { ssr: false })
 
 export default function BoardClient({ project }: { project: any }) {
   const [data, setData] = useState(project)
+  const [groupMode, setGroupMode] = useState<"workflow" | "sections">("workflow")
   const [selectedTask, setSelectedTask] = useState<any>(null)
   const [addingToSection, setAddingToSection] = useState<string | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState("")
   const [isAddingSection, setIsAddingSection] = useState(false)
   const [newSectionName, setNewSectionName] = useState("")
+  const [boardError, setBoardError] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const sectionInputRef = useRef<HTMLInputElement>(null)
   const searchParams = useSearchParams()
@@ -40,7 +47,23 @@ export default function BoardClient({ project }: { project: any }) {
       ...prev,
       sections: syncTaskInSections(prev.sections, updatedTask, { projectId: prev.id }),
     }))
+    setSelectedTask((current: any) => current?.id === updatedTask.id ? { ...current, ...updatedTask } : current)
   }
+
+  const allTasks = data.sections.flatMap((section: any) => section.tasks)
+  const columns = groupMode === "workflow"
+    ? TASK_WORKFLOW_STAGES.map((stage) => ({
+        id: `status:${stage.id}`,
+        name: stage.label,
+        tasks: allTasks.filter((task: any) => task.status === stage.id),
+        workflowStatus: stage.id,
+        manualTransition: stage.manualTransition,
+      }))
+    : data.sections.map((section: any) => ({
+        ...section,
+        workflowStatus: null,
+        manualTransition: true,
+      }))
 
   useEffect(() => {
     const taskId = searchParams?.get("taskId")
@@ -57,6 +80,35 @@ export default function BoardClient({ project }: { project: any }) {
     const { destination, source, draggableId } = result
     if (!destination) return
     if (destination.droppableId === source.droppableId && destination.index === source.index) return
+
+    if (groupMode === "workflow") {
+      if (destination.droppableId === source.droppableId) return
+      const sourceTask = allTasks.find((task: any) => task.id === draggableId)
+      const destinationStatus = destination.droppableId.replace("status:", "") as TaskWorkflowStageId
+      if (!sourceTask) return
+
+      const transitionError = validateManualTaskTransition({
+        from: sourceTask.status,
+        to: destinationStatus,
+        qualityRequired: Boolean(sourceTask.quality_required),
+        qualityState: sourceTask.quality_state || "not_required",
+      })
+      if (transitionError) {
+        setBoardError(transitionError)
+        return
+      }
+
+      setBoardError("")
+      applyTaskUpdate({ ...sourceTask, status: destinationStatus })
+      const updateResult = await updateTask(draggableId, { status: destinationStatus })
+      if (updateResult?.error) {
+        applyTaskUpdate(sourceTask)
+        setBoardError(updateResult.error)
+      } else if (updateResult?.task) {
+        applyTaskUpdate(updateResult.task)
+      }
+      return
+    }
 
     const previousSections = data.sections
     const sourceSectionIndex = data.sections.findIndex((s: any) => s.id === source.droppableId)
@@ -82,17 +134,27 @@ export default function BoardClient({ project }: { project: any }) {
     }
   }
 
-  const handleAddTask = async (sectionId: string) => {
+  const handleAddTask = async (column: any) => {
     const title = newTaskTitle.trim()
     if (!title) {
       setAddingToSection(null)
       return
     }
 
+    const sectionId = column.workflowStatus ? data.sections[0]?.id : column.id
+    if (!sectionId) {
+      setBoardError("Add a project section before creating tasks")
+      return
+    }
+    const status = (column.workflowStatus || "incomplete") as TaskWorkflowStageId
     const tempTask = {
       id: `temp-${Date.now()}`,
       title,
-      status: "incomplete",
+      status,
+      quality_required: false,
+      quality_state: "not_required",
+      section_id: sectionId,
+      project_id: data.id,
       priority: null,
       due_date: null,
       assignee: null,
@@ -101,15 +163,16 @@ export default function BoardClient({ project }: { project: any }) {
       subtasks: [],
       attachments: [],
     }
-    const newSections = data.sections.map((s: any) =>
-      s.id === sectionId ? { ...s, tasks: [...s.tasks, tempTask] } : s
-    )
-    setData({ ...data, sections: newSections })
+    setData((current: any) => ({
+      ...current,
+      sections: syncTaskInSections(current.sections, tempTask, { projectId: current.id }),
+    }))
     setNewTaskTitle("")
     setAddingToSection(null)
 
     const result = await createTask({
       title,
+      status,
       section_id: sectionId,
       project_id: data.id,
       workspace_id: data.workspace_id,
@@ -124,6 +187,7 @@ export default function BoardClient({ project }: { project: any }) {
         }))
       }))
     } else {
+      setBoardError(result.error || "Could not create the task")
       setData((prev: any) => ({
         ...prev,
         sections: prev.sections.map((s: any) => ({
@@ -172,18 +236,45 @@ export default function BoardClient({ project }: { project: any }) {
       <div className="flex h-full min-h-0 flex-col bg-[#18181b] p-4 sm:p-6">
         <div className="mb-4 flex shrink-0 items-center justify-between gap-4 border-b border-[#3f3f46] pb-3">
           <button
-            onClick={() => data.sections[0] && setAddingToSection(data.sections[0].id)}
+            onClick={() => data.sections[0] && setAddingToSection(groupMode === "workflow" ? "status:incomplete" : data.sections[0].id)}
             disabled={data.sections.length === 0}
             className="inline-flex h-9 items-center gap-2 rounded-full bg-[#0075de] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#005bab] disabled:cursor-not-allowed disabled:opacity-40 shadow-sm"
           >
             <Plus className="h-3.5 w-3.5" />
             Add task
           </button>
-          <span className="hidden text-xs text-[#a1a1aa] sm:block font-medium">Drag tasks between sections to organize project work</span>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-xs font-medium text-[#a1a1aa] lg:block">
+              {groupMode === "workflow"
+                ? "Review states are changed only through the quality workflow"
+                : "Drag tasks between sections to organize project work"}
+            </span>
+            <div className="flex rounded-lg border border-[#3f3f46] bg-[#202023] p-0.5" aria-label="Board grouping">
+              <button
+                type="button"
+                onClick={() => setGroupMode("workflow")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${groupMode === "workflow" ? "bg-[#0075de] text-white" : "text-[#a1a1aa] hover:text-white"}`}
+              >
+                Workflow
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroupMode("sections")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${groupMode === "sections" ? "bg-[#0075de] text-white" : "text-[#a1a1aa] hover:text-white"}`}
+              >
+                Sections
+              </button>
+            </div>
+          </div>
         </div>
+        {boardError ? (
+          <div role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-300">
+            {boardError}
+          </div>
+        ) : null}
         <div className="min-h-0 flex-1 overflow-auto custom-scrollbar">
         <div className="flex min-w-max items-start gap-4 pb-5">
-          {data.sections.map((section: any) => (
+          {columns.map((section: any) => (
             <div key={section.id} className="group/section flex min-h-[420px] w-[calc(100vw-3rem)] shrink-0 flex-col sm:w-[320px]">
             {/* Section Header */}
             <div className="mb-2 flex min-h-11 items-center justify-between rounded-lg border border-[#3f3f46] bg-[#202023] px-3 py-2">
@@ -196,13 +287,14 @@ export default function BoardClient({ project }: { project: any }) {
                   className="flex h-7 w-7 items-center justify-center rounded-md text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
                   aria-label="Add task to section"
                   onClick={() => setAddingToSection(section.id)}
+                  disabled={!section.manualTransition}
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
             
-            <Droppable droppableId={section.id} type="task">
+            <Droppable droppableId={section.id} type="task" isDropDisabled={!section.manualTransition}>
               {(provided, snapshot) => (
                 <div 
                   ref={provided.innerRef} 
@@ -210,7 +302,12 @@ export default function BoardClient({ project }: { project: any }) {
                    className={`min-h-[120px] flex-1 space-y-2.5 rounded-xl border border-[#3f3f46] bg-[#18181b]/50 p-2.5 transition-colors ${snapshot.isDraggingOver ? "border-[#0075de]/50 bg-[#202023]" : ""}`}
                 >
                   {section.tasks.map((task: any, index: number) => (
-                    <Draggable key={task.id} draggableId={task.id} index={index}>
+                    <Draggable
+                      key={task.id}
+                      draggableId={task.id}
+                      index={index}
+                      isDragDisabled={groupMode === "workflow" && !section.manualTransition}
+                    >
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -303,7 +400,7 @@ export default function BoardClient({ project }: { project: any }) {
             </Droppable>
 
             {/* Add Task input */}
-            <div className="mt-2 group/addtask">
+            {section.manualTransition ? <div className="mt-2 group/addtask">
               {addingToSection === section.id ? (
                 <div className="space-y-2 rounded-lg border border-[#3f3f46] bg-[#202023] p-2 shadow-md">
                   <input
@@ -312,7 +409,7 @@ export default function BoardClient({ project }: { project: any }) {
                     value={newTaskTitle}
                     onChange={(e) => setNewTaskTitle(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") handleAddTask(section.id)
+                      if (e.key === "Enter") handleAddTask(section)
                       if (e.key === "Escape") { setAddingToSection(null); setNewTaskTitle("") }
                     }}
                     placeholder="Task name"
@@ -320,7 +417,7 @@ export default function BoardClient({ project }: { project: any }) {
                   />
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleAddTask(section.id)}
+                      onClick={() => handleAddTask(section)}
                        className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-[#005bab]"
                     >
                       Add task
@@ -343,12 +440,14 @@ export default function BoardClient({ project }: { project: any }) {
                   Add task
                 </button>
               )}
-            </div>
+            </div> : (
+              <p className="mt-2 px-3 text-[11px] leading-4 text-[#71717a]">Managed by quality review actions</p>
+            )}
             </div>
           ))}
         
          {/* Add Section Placeholder */}
-          <div className="w-[calc(100vw-3rem)] shrink-0 sm:w-[320px]">
+          {groupMode === "sections" ? <div className="w-[calc(100vw-3rem)] shrink-0 sm:w-[320px]">
             {isAddingSection ? (
               <div className="rounded-xl border border-[#3f3f46] bg-[#202023] p-3 shadow-md">
                 <input
@@ -391,7 +490,7 @@ export default function BoardClient({ project }: { project: any }) {
                 <Plus className="w-3.5 h-3.5 mr-1.5 text-[#0075de]" /> Add section
               </button>
             )}
-          </div>
+          </div> : null}
         </div>
         </div>
       </div>

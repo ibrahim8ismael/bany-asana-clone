@@ -16,11 +16,11 @@ test("taskAccessWhere keeps project, direct-client, and personal access distinct
         OR: [
           { owner_id: "user-1" },
           {
-            members: {
-              some: {
-                user_id: "user-1",
-                role: { in: ["admin", "user"] },
-              },
+        members: {
+          some: {
+            user_id: "user-1",
+            role: { in: ["owner", "admin", "member"] },
+          },
             },
           },
         ],
@@ -33,6 +33,7 @@ test("taskAccessWhere keeps project, direct-client, and personal access distinct
     OR: [{ assignee_id: "user-1" }, { creator_id: "user-1" }],
   })
   assert.deepEqual(reviewerTask, {
+    project_id: null,
     reviewer_id: "user-1",
     quality_required: true,
   })
@@ -54,4 +55,58 @@ test("normal users retain scoped workspace and project access", () => {
   assert.notDeepEqual(workspaceAccessWhere("user-1", "view"), {})
   assert.notDeepEqual(projectAccessWhere("user-1", "view"), {})
   assert.notDeepEqual(taskAccessWhere("user-1", "view"), {})
+})
+
+test("project access requires active-workspace membership in that project", () => {
+  assert.deepEqual(projectAccessWhere("user-1", "view"), {
+    workspace: {
+      active_users: { some: { id: "user-1" } },
+      members: { some: { user_id: "user-1", role: { in: ["owner", "admin", "member"] } } },
+    },
+    OR: [
+      { owner_id: "user-1" },
+      {
+        members: {
+          some: {
+            user_id: "user-1",
+            role: { in: ["admin", "member"] },
+          },
+        },
+      },
+    ],
+  })
+
+  assert.deepEqual(projectAccessWhere("user-1", "manage"), {
+    workspace: {
+      active_users: { some: { id: "user-1" } },
+      members: { some: { user_id: "user-1", role: { in: ["owner", "admin", "member"] } } },
+    },
+    OR: [
+      { owner_id: "user-1" },
+      {
+        members: {
+          some: {
+            user_id: "user-1",
+            role: { in: ["admin"] },
+          },
+        },
+      },
+    ],
+  })
+})
+
+test("workspace roles use owner, admin, and member vocabulary", () => {
+  assert.deepEqual(workspaceAccessWhere("user-1", "view"), {
+    OR: [
+      { owner_id: "user-1" },
+      {
+        members: {
+          some: {
+            user_id: "user-1",
+            role: { in: ["owner", "admin", "member"] },
+          },
+        },
+      },
+    ],
+  })
 })

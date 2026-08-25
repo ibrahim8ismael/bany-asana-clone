@@ -181,7 +181,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
   }) : null
   const workspace = activeWorkspace ? { id: activeWorkspace.id, name: activeWorkspace.name } : null
   const workspaceId = workspace?.id || null
-  const workspaceRole = activeWorkspace?.owner_id === userId ? "owner" : membership?.role || "guest"
+  const workspaceRole = activeWorkspace?.owner_id === userId ? "owner" : membership?.role || "member"
   const isManager = user.is_super_admin || workspaceRole === "owner" || workspaceRole === "admin"
   const filters: ReportingFilters = requestedFilters.scope === "team" && !isManager
     ? { ...requestedFilters, scope: "personal" }
@@ -261,7 +261,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
       ? prisma.workspaceMember.findMany({
           where: {
             workspace_id: workspaceId,
-            role: { not: "guest" },
+            role: { in: ["owner", "admin", "member"] },
           },
           select: {
             role: true,

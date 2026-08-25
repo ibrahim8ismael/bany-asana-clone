@@ -1,11 +1,16 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import {
+  buildQualitySubmissionTaskUpdate,
   buildQualityDecisionTaskUpdate,
   calculateGradeKpiScore,
   calculateTaskQualityScore,
   issueAffectsQualityScore,
+  isPendingQualityReviewTask,
+  isQualityReworkTask,
   resolveQualityReviewOutcome,
+  validateQualityReviewTransition,
+  validateQualitySubmissionTransition,
 } from "@/lib/quality"
 
 test("quality score follows the automatic rework bands", () => {
@@ -65,4 +70,92 @@ test("Needs Rework is persisted through the quality decision with counters and d
   assert.equal(update.rework_due_date, dueDate)
   assert.equal(update.rework_count, 1)
   assert.equal(update.completed_at, null)
+})
+
+test("quality workflow preserves both status fields through submit, rework, resubmit, and approval", () => {
+  const firstSubmissionAt = new Date("2026-08-03T12:00:00.000Z")
+  assert.equal(validateQualitySubmissionTransition({
+    status: "in_progress",
+    qualityState: "ready",
+    effectivePolicy: "required",
+  }), null)
+
+  const firstSubmission = buildQualitySubmissionTaskUpdate({
+    reviewerId: "reviewer-1",
+    now: firstSubmissionAt,
+    firstSubmittedAt: null,
+    originalDueDate: null,
+    dueDate: new Date("2026-08-04T12:00:00.000Z"),
+  })
+  assert.equal(firstSubmission.status, "submitted_for_review")
+  assert.equal(firstSubmission.quality_state, "submitted")
+  assert.equal(isPendingQualityReviewTask({
+    status: firstSubmission.status,
+    qualityState: firstSubmission.quality_state,
+  }), true)
+  assert.equal(validateQualityReviewTransition({
+    status: firstSubmission.status,
+    qualityState: firstSubmission.quality_state,
+    pendingReviewCount: 1,
+  }), null)
+
+  const rework = buildQualityDecisionTaskUpdate({
+    outcome: "needs_rework",
+    now: new Date("2026-08-04T12:00:00.000Z"),
+    reworkDueDate: new Date("2026-08-06T12:00:00.000Z"),
+    firstAccountableGrade: "needs_rework",
+    finalGrade: "needs_rework",
+    qualityScore: 60,
+    reworkCount: 1,
+    blockerCount: 0,
+  })
+  assert.equal(isQualityReworkTask({ status: rework.status, qualityState: rework.quality_state }), true)
+  assert.equal(validateQualitySubmissionTransition({
+    status: rework.status,
+    qualityState: rework.quality_state,
+    effectivePolicy: "required",
+  }), null)
+
+  const resubmission = buildQualitySubmissionTaskUpdate({
+    reviewerId: "reviewer-1",
+    now: new Date("2026-08-05T12:00:00.000Z"),
+    firstSubmittedAt: firstSubmissionAt,
+    originalDueDate: firstSubmission.original_due_date,
+    dueDate: new Date("2026-08-04T12:00:00.000Z"),
+  })
+  assert.equal(resubmission.status, "submitted_for_review")
+  assert.equal(resubmission.quality_state, "submitted")
+
+  const approval = buildQualityDecisionTaskUpdate({
+    outcome: "approved",
+    now: new Date("2026-08-06T12:00:00.000Z"),
+    reworkDueDate: null,
+    firstAccountableGrade: "needs_rework",
+    finalGrade: "good",
+    qualityScore: 60,
+    reworkCount: 1,
+    blockerCount: 0,
+  })
+  assert.equal(approval.status, "complete")
+  assert.equal(approval.quality_state, "approved")
+  assert.equal(isPendingQualityReviewTask({ status: approval.status, qualityState: approval.quality_state }), false)
+  assert.equal(isQualityReworkTask({ status: approval.status, qualityState: approval.quality_state }), false)
+})
+
+test("quality actions reject mismatched workflow state and duplicate pending reviews", () => {
+  assert.match(validateQualitySubmissionTransition({
+    status: "in_progress",
+    qualityState: "needs_rework",
+    effectivePolicy: "required",
+  }) || "", /out of sync/i)
+  assert.match(validateQualityReviewTransition({
+    status: "submitted_for_review",
+    qualityState: "ready",
+    pendingReviewCount: 1,
+  }) || "", /not currently in review/i)
+  assert.match(validateQualityReviewTransition({
+    status: "submitted_for_review",
+    qualityState: "submitted",
+    pendingReviewCount: 2,
+  }) || "", /exactly one/i)
 })

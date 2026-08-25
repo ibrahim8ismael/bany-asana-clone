@@ -4,6 +4,8 @@ import { getActiveWorkspaceForUser, isSuperAdminUser, projectAccessWhere, taskAc
 import { prisma } from "@/lib/prisma"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
 import { DIRECT_CLIENT_TASK_SCOPE } from "@/lib/client-hierarchy"
+import { isWorkspaceAdmin } from "@/lib/project-membership"
+import { sidebarProjectWhere } from "@/lib/sidebar-data"
 
 const taskCardSelect = {
   id: true,
@@ -106,11 +108,7 @@ export async function getSidebarData(userId: string) {
         name: true,
         color: true,
         projects: {
-          where: {
-            ...projectAccessWhere(userId, "view", superAdmin),
-            archived: false,
-            status: { not: "complete" },
-          },
+          where: sidebarProjectWhere(userId, superAdmin),
           select: { id: true, name: true, color: true, default_view: true },
           orderBy: { updated_at: "desc" },
         },
@@ -153,9 +151,9 @@ export async function getSidebarData(userId: string) {
             workspace_id: activeWorkspace.id,
             archived: false,
             OR: [
-              { reviewer_id: userId, quality_state: "submitted" },
-              { assignee_id: userId, quality_state: "needs_rework" },
-              { assignee_id: null, creator_id: userId, quality_state: "needs_rework" },
+              { reviewer_id: userId, status: "submitted_for_review", quality_state: "submitted" },
+              { assignee_id: userId, status: "needs_rework", quality_state: "needs_rework" },
+              { assignee_id: null, creator_id: userId, status: "needs_rework", quality_state: "needs_rework" },
             ],
           },
         ],
@@ -165,12 +163,11 @@ export async function getSidebarData(userId: string) {
 
   const workspaces = accessibleWorkspaces.map(({ owner_id, members, ...workspace }) => {
     const role = owner_id === userId ? "owner" : members[0]?.role ?? "member"
-    const effectiveRole = role === "owner" || !superAdmin ? role : "admin"
     return {
       ...workspace,
       role,
-      effectiveRole,
-      canAdmin: Boolean(superAdmin || role === "owner" || role === "admin"),
+      effectiveRole: role,
+      canAdmin: Boolean(superAdmin || isWorkspaceAdmin(role)),
     }
   })
   const workspace = workspaces.find((item) => item.id === activeWorkspace?.id) ?? null
@@ -319,17 +316,7 @@ export async function getInboxFeed(userId: string) {
     where: {
       workspace_id: activeWorkspace.id,
       archived: false,
-      OR: [
-        { owner_id: userId },
-        {
-          members: {
-            some: {
-              user_id: userId,
-              role: "admin",
-            },
-          },
-        },
-      ],
+      ...projectAccessWhere(userId, "manage", superAdmin),
     },
     select: { id: true },
   }) : []

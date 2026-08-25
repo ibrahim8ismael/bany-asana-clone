@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { parseActivityMeta } from "@/lib/activity"
 import { isSuperAdminUser, projectAccessWhere } from "@/lib/permissions"
+import { effectiveProjectRole, type ProjectRole, type WorkspaceRole } from "@/lib/project-membership"
 import ProjectMembersManager from "@/components/project-members-manager"
 import ProjectAccessDenied from "@/components/project-access-denied"
 import { notFound } from "next/navigation"
@@ -63,8 +64,9 @@ export default async function ProjectOverviewPage({ params }: { params: Promise<
 
   const workspaceMembers = canManageProject
     ? await prisma.workspaceMember.findMany({
-        where: { workspace_id: project.workspace_id, role: { not: "guest" } },
+        where: { workspace_id: project.workspace_id, role: { in: ["owner", "admin", "member"] } },
         select: {
+          role: true,
           user: {
             select: {
               id: true,
@@ -183,7 +185,7 @@ export default async function ProjectOverviewPage({ params }: { params: Promise<
               initialDefaultReviewerId={project.default_reviewer_id}
               initialReviewSlaDays={project.review_sla_days}
               reviewers={canManageProject
-                ? workspaceMembers.map((membership) => membership.user)
+                ? project.members.map((membership) => membership.user)
                 : project.default_reviewer ? [project.default_reviewer] : []}
               canManage={canManageProject}
             />
@@ -191,8 +193,22 @@ export default async function ProjectOverviewPage({ params }: { params: Promise<
             <ProjectMembersManager
               projectId={project.id}
               canManage={canManageProject}
-              members={project.members}
-              workspaceMembers={workspaceMembers.map((membership) => membership.user)}
+              canTransferOwnership={canManageProject && (project.owner_id === userId || isSuperAdmin)}
+              ownerId={project.owner_id}
+              members={project.members.map((member) => ({
+                ...member,
+                role: member.role as ProjectRole,
+                effectiveRole: effectiveProjectRole({
+                  userId: member.user.id,
+                  ownerId: project.owner_id,
+                  membershipRole: member.role,
+                }) || "member",
+                isOwner: member.user.id === project.owner_id,
+              }))}
+              workspaceMembers={workspaceMembers.map((membership) => ({
+                ...membership.user,
+                workspaceRole: membership.role as WorkspaceRole,
+              }))}
             />
 
             {/* Resources */}
@@ -239,6 +255,8 @@ function describeProjectActivity(activity: ProjectActivityItem) {
       return `${actor} changed ${meta?.memberName ? `${meta.memberName}'s` : "a member's"} role${meta?.to ? ` to ${meta.to}` : ""}`
     case "project_member_removed":
       return `${actor} removed ${meta?.memberName ? meta.memberName : "a member"} from the project`
+    case "project_owner_transferred":
+      return `${actor} transferred project ownership${meta?.toName ? ` to ${meta.toName}` : ""}`
     case "project_quality_policy_changed":
       return `${actor} updated the project quality policy${meta?.policy ? ` to ${meta.policy}` : ""}`
     case "section_created":

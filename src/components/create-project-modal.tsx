@@ -1,11 +1,13 @@
 "use client"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { createProject } from "@/actions/server-actions"
+import { createProject, getProjectCreationMemberOptions } from "@/actions/server-actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { X, LayoutGrid, List, Calendar, GitBranch } from "lucide-react"
+import ProjectMemberPicker, { type ProjectWorkspaceMemberOption } from "@/components/project-member-picker"
+import type { ProjectMemberAssignment } from "@/lib/project-membership"
+import { X, LayoutGrid, List, Calendar, GitBranch, Loader2, ShieldCheck, Users } from "lucide-react"
 
 const views = [
   { key: "list", label: "List", icon: List },
@@ -45,12 +47,49 @@ export default function CreateProjectModal({
   const [clientId, setClientId] = useState(initialClientId || clients[0]?.id || "")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [membersError, setMembersError] = useState("")
+  const [ownerId, setOwnerId] = useState<string | null>(null)
+  const [workspaceMembers, setWorkspaceMembers] = useState<ProjectWorkspaceMemberOption[]>([])
+  const [selectedMembers, setSelectedMembers] = useState<ProjectMemberAssignment[]>([])
   const router = useRouter()
 
   useEffect(() => {
     if (!isOpen) return
     setClientId(initialClientId || clients[0]?.id || "")
   }, [clients, initialClientId, isOpen])
+
+  useEffect(() => {
+    if (!isOpen || !clientId) {
+      setOwnerId(null)
+      setWorkspaceMembers([])
+      setSelectedMembers([])
+      setMembersError("")
+      return
+    }
+
+    let cancelled = false
+    setMembersLoading(true)
+    setMembersError("")
+    setSelectedMembers([])
+
+    void getProjectCreationMemberOptions(clientId).then((result) => {
+      if (cancelled) return
+      if (result.success) {
+        setOwnerId(result.ownerId)
+        setWorkspaceMembers(result.members)
+      } else {
+        setOwnerId(null)
+        setWorkspaceMembers([])
+        setMembersError(result.error || "Failed to load workspace members")
+      }
+      setMembersLoading(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [clientId, isOpen])
 
   if (!isOpen) return null
 
@@ -67,6 +106,7 @@ export default function CreateProjectModal({
       default_view: defaultView,
       client_id: clientId,
       color,
+      members: selectedMembers,
     })
     
     setLoading(false)
@@ -75,20 +115,24 @@ export default function CreateProjectModal({
       setName("")
       setDescription("")
       setDeadline("")
+      setSelectedMembers([])
       if (onSuccess) {
         onSuccess(result.project)
       } else {
         router.push(`/projects/${result.project.id}/${defaultView}`)
-        router.refresh()
       }
+      router.refresh()
     } else {
       setError(result.error || "Failed to create project. Please try again.")
     }
   }
 
+  const owner = workspaceMembers.find((member) => member.id === ownerId) || null
+  const eligibleMembers = workspaceMembers.filter((member) => member.id !== ownerId)
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:max-h-[calc(100dvh-2rem)] sm:max-w-lg sm:rounded-xl">
+      <div className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-xl bg-white shadow-2xl ring-1 ring-gray-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl sm:rounded-xl">
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b px-4 py-3 dark:border-zinc-800 sm:px-6 sm:py-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Create new project</h2>
@@ -159,6 +203,58 @@ export default function CreateProjectModal({
             </select>
           </div>
 
+          <section className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  <Users className="h-4 w-4 text-blue-500" />
+                  Project members
+                </div>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  Choose people from this workspace and assign each person an Admin or Member role.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-500">
+                Optional
+              </span>
+            </div>
+
+            {membersLoading ? (
+              <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-200 px-4 py-10 text-sm text-gray-500 dark:border-zinc-700 dark:text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading workspace members...
+              </div>
+            ) : membersError ? (
+              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-900/10 dark:text-red-300">
+                {membersError}
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 p-3 dark:border-violet-500/20 dark:bg-violet-500/5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-300">
+                    <ShieldCheck className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-gray-900 dark:text-white/90">{owner?.full_name || "You"}</div>
+                    <div className="truncate text-xs text-gray-500 dark:text-white/40">{owner?.email || "Project creator"}</div>
+                  </div>
+                  <span className="rounded-full border border-violet-500/25 bg-violet-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">
+                    Owner
+                  </span>
+                </div>
+
+                <ProjectMemberPicker
+                  members={eligibleMembers}
+                  value={selectedMembers}
+                  onChange={setSelectedMembers}
+                  disabled={loading}
+                  emptyTitle="No other workspace members"
+                  emptyDescription="Invite people to the workspace before assigning them to this project."
+                />
+              </>
+            )}
+          </section>
+
           {/* Color */}
           <div className="space-y-2">
             <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">Color</Label>
@@ -216,8 +312,8 @@ export default function CreateProjectModal({
 
           <div className="flex shrink-0 flex-col-reverse gap-2 border-t bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 sm:flex-row sm:justify-end">
             <Button type="button" variant="ghost" onClick={onClose} disabled={loading} className="w-full sm:w-auto">Cancel</Button>
-            <Button type="submit" disabled={loading || !name.trim() || !clientId || clients.length === 0} className="w-full px-6 sm:w-auto">
-              {loading ? "Creating..." : "Create Project"}
+            <Button type="submit" disabled={loading || membersLoading || Boolean(membersError) || !name.trim() || !clientId || clients.length === 0} className="w-full px-6 sm:w-auto">
+              {loading ? "Creating..." : selectedMembers.length > 0 ? `Create with ${selectedMembers.length + 1} members` : "Create Project"}
             </Button>
           </div>
         </form>

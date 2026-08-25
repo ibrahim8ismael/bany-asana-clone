@@ -465,9 +465,9 @@ async function importProjects(
         create: {
           project_id: project.id,
           user_id: ownerId,
-          role: "owner",
+          role: "admin",
         },
-        update: { role: "owner" },
+        update: { role: "admin" },
       })
     )
   )

@@ -5,16 +5,19 @@ import { format } from "date-fns"
 import {
   addTaskAttachment,
   createSubtask,
+  deleteTask,
   deleteSubtask,
   deleteTaskAttachment,
   getAssignableUsers,
   getTaskActivity,
+  getTaskCapabilities,
   getUserClients,
   getUserProjects,
   toggleSubtaskStatus,
   updateTask,
 } from "@/actions/server-actions"
 import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import TaskComments from "@/components/task-comments"
 import TaskQualityPanel from "@/components/task-quality-panel"
 import { Button } from "@/components/ui/button"
@@ -155,6 +158,7 @@ export default function TaskDrawer({
   onClose: () => void
   onTaskUpdated?: (task: DrawerTask) => void
 }) {
+  const router = useRouter()
   const { data: session } = useSession()
   const [descriptionDraft, setDescriptionDraft] = useState(task?.description_rich_text || "")
   const [isCompleting, setIsCompleting] = useState(false)
@@ -170,6 +174,7 @@ export default function TaskDrawer({
   const [attachmentName, setAttachmentName] = useState("")
   const [attachmentUrl, setAttachmentUrl] = useState("")
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("")
+  const [canManageTask, setCanManageTask] = useState(false)
 
   const displayTask = localTask ?? task
   const projectOptions: TaskSelectOption[] = userProjects.map((project) => ({
@@ -192,14 +197,25 @@ export default function TaskDrawer({
   }))
 
   useEffect(() => {
-    if (!isOpen || !task?.id) return
+    setLocalTask(task)
+    setTitleDraft(task?.title || "")
+    setDescriptionDraft(task?.description_rich_text || "")
+    setSaveError("")
+    setSavingField(null)
+    setIsEditingTitle(false)
+  }, [task])
 
-    void Promise.all([getUserProjects(), getUserClients(), getAssignableUsers(task.id), getTaskActivity(task.id)]).then(
-      ([projects, clients, users, activity]) => {
+  useEffect(() => {
+    if (!isOpen || !task?.id) return
+    setCanManageTask(false)
+
+    void Promise.all([getUserProjects(), getUserClients(), getAssignableUsers(task.id), getTaskActivity(task.id), getTaskCapabilities(task.id)]).then(
+      ([projects, clients, users, activity, capabilities]) => {
         setUserProjects(projects)
         setUserClients(clients)
         setAssignableUsers(users)
         setActivities(activity as DrawerActivity[])
+        setCanManageTask(capabilities.canManage)
       }
     )
   }, [isOpen, task?.id])
@@ -362,6 +378,17 @@ export default function TaskDrawer({
     }
   }
 
+  const handleDeleteTask = async () => {
+    if (!window.confirm(`Delete “${displayTask.title}”? This cannot be undone.`)) return
+    const result = await deleteTask(displayTask.id)
+    if (!result.success) {
+      setSaveError(result.error || "Failed to delete task")
+      return
+    }
+    onClose()
+    router.refresh()
+  }
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-hidden border-l border-[#3f3f46] bg-[#202023] p-0 text-[#f4f4f5] sm:max-w-2xl">
@@ -379,13 +406,25 @@ export default function TaskDrawer({
               <CheckCircle2 className={`h-4 w-4 ${isComplete ? "fill-emerald-400 text-emerald-950" : ""}`} />
               {displayTask.quality_required ? qualityActionLabel : isComplete ? "Completed" : "Mark Complete"}
             </button>
-            <button
-              onClick={onClose}
-              className="rounded-md p-1.5 text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
-              aria-label="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {canManageTask ? (
+                <button
+                  onClick={() => void handleDeleteTask()}
+                  className="rounded-md p-1.5 text-[#a1a1aa] transition-colors hover:bg-rose-500/10 hover:text-rose-400"
+                  aria-label="Delete task"
+                  title="Delete task"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              ) : null}
+              <button
+                onClick={onClose}
+                className="rounded-md p-1.5 text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 space-y-6 overflow-y-auto p-4 custom-scrollbar sm:p-6 bg-[#202023]">

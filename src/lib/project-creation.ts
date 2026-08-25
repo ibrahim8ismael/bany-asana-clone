@@ -1,3 +1,5 @@
+import type { ProjectMemberAssignment } from "@/lib/project-membership"
+
 export const DEFAULT_PROJECT_SECTIONS = [
   { name: "Backlog", position: 1000 },
   { name: "To Do", position: 2000 },
@@ -16,6 +18,7 @@ export function buildProjectCreateData(input: {
   clientId: string
   ownerId: string
   color?: string
+  members?: ProjectMemberAssignment[]
 }) {
   return {
     name: input.name.trim(),
@@ -30,10 +33,16 @@ export function buildProjectCreateData(input: {
     color: input.color || "#6366f1",
     privacy: "workspace_visible",
     members: {
-      create: {
-        user_id: input.ownerId,
-        role: "owner",
-      },
+      create: [
+        {
+          user_id: input.ownerId,
+          role: "admin",
+        },
+        ...(input.members || []).map((member) => ({
+          user_id: member.userId,
+          role: member.role,
+        })),
+      ],
     },
-  } as const
+  }
 }

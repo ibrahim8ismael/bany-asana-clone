@@ -98,7 +98,13 @@ async function main() {
       privacy: 'workspace_visible',
       default_view: 'board',
       status: 'on_track',
-      color: '#60a5fa'
+      color: '#60a5fa',
+      members: {
+        create: [
+          { user_id: admin.id, role: 'admin' },
+          { user_id: member.id, role: 'member' },
+        ],
+      }
     }
   })
   
@@ -111,7 +117,10 @@ async function main() {
       privacy: 'workspace_visible',
       default_view: 'list',
       status: 'at_risk',
-      color: '#f472b6'
+      color: '#f472b6',
+      members: {
+        create: [{ user_id: admin.id, role: 'admin' }],
+      }
     }
   })
 
