@@ -30,6 +30,12 @@ export type TaskPlacementResult =
     }
   | { success: false; error: string }
 
+export const TASK_POSITION_STEP = 1000
+
+export function nextTaskPosition(lastPosition: number | null | undefined) {
+  return (lastPosition ?? 0) + TASK_POSITION_STEP
+}
+
 export function resolveTaskPlacement(input: {
   project: ProjectPlacement | null
   client: ClientPlacement | null
@@ -86,4 +92,3 @@ export function resolveTaskPlacement(input: {
     sectionId: input.section?.id || null,
   }
 }
-

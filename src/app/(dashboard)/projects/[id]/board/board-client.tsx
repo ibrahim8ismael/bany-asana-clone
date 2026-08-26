@@ -2,13 +2,15 @@
 
 import dynamic from "next/dynamic"
 import { useEffect, useRef, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd"
 import { Card } from "@/components/ui/card"
 import { format, isPast, isToday } from "date-fns"
 import { MessageSquare, CheckSquare, Plus, X, Calendar } from "lucide-react"
 import { createSection, createTask, updateTask, updateTaskPosition } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
+import { resolveBoardTaskCreationPlacement } from "@/lib/board-task-placement"
+import { nextTaskPosition } from "@/lib/task-placement"
 import {
   getTaskWorkflowLabel,
   TASK_WORKFLOW_STAGES,
@@ -18,12 +20,20 @@ import {
 
 const TaskDrawer = dynamic(() => import("@/components/task-drawer"), { ssr: false })
 
-export default function BoardClient({ project }: { project: any }) {
+export default function BoardClient({
+  project,
+  canManageTasks,
+}: {
+  project: any
+  canManageTasks: boolean
+}) {
+  const router = useRouter()
   const [data, setData] = useState(project)
   const [groupMode, setGroupMode] = useState<"workflow" | "sections">("workflow")
   const [selectedTask, setSelectedTask] = useState<any>(null)
   const [addingToSection, setAddingToSection] = useState<string | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState("")
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
   const [isAddingSection, setIsAddingSection] = useState(false)
   const [newSectionName, setNewSectionName] = useState("")
   const [boardError, setBoardError] = useState("")
@@ -110,6 +120,11 @@ export default function BoardClient({ project }: { project: any }) {
       return
     }
 
+    if (!canManageTasks) {
+      setBoardError("Only project admins can move tasks between project sections")
+      return
+    }
+
     const previousSections = data.sections
     const sourceSectionIndex = data.sections.findIndex((s: any) => s.id === source.droppableId)
     const destSectionIndex = data.sections.findIndex((s: any) => s.id === destination.droppableId)
@@ -129,32 +144,43 @@ export default function BoardClient({ project }: { project: any }) {
 
     if (updateResult?.error) {
       setData((prev: any) => ({ ...prev, sections: previousSections }))
+      setBoardError(updateResult.error)
     } else if (updateResult?.task) {
+      setBoardError("")
       applyTaskUpdate(updateResult.task)
     }
   }
 
   const handleAddTask = async (column: any) => {
+    if (isCreatingTask) return
     const title = newTaskTitle.trim()
     if (!title) {
       setAddingToSection(null)
       return
     }
 
-    const sectionId = column.workflowStatus ? data.sections[0]?.id : column.id
-    if (!sectionId) {
-      setBoardError("Add a project section before creating tasks")
+    const placement = resolveBoardTaskCreationPlacement({
+      bucket: column,
+      sections: data.sections,
+      projectId: data.id,
+      workspaceId: data.workspace_id,
+    })
+    if (!placement.success) {
+      setBoardError(placement.error)
       return
     }
-    const status = (column.workflowStatus || "incomplete") as TaskWorkflowStageId
+    const physicalSection = data.sections.find((section: any) => section.id === placement.input.section_id)
+    const lastPosition = physicalSection?.tasks.reduce(
+      (maximum: number, task: any) => Math.max(maximum, typeof task.position === "number" ? task.position : 0),
+      0
+    ) || null
     const tempTask = {
       id: `temp-${Date.now()}`,
       title,
-      status,
+      ...placement.input,
+      position: nextTaskPosition(lastPosition),
       quality_required: false,
       quality_state: "not_required",
-      section_id: sectionId,
-      project_id: data.id,
       priority: null,
       due_date: null,
       assignee: null,
@@ -167,27 +193,10 @@ export default function BoardClient({ project }: { project: any }) {
       ...current,
       sections: syncTaskInSections(current.sections, tempTask, { projectId: current.id }),
     }))
-    setNewTaskTitle("")
-    setAddingToSection(null)
+    setBoardError("")
+    setIsCreatingTask(true)
 
-    const result = await createTask({
-      title,
-      status,
-      section_id: sectionId,
-      project_id: data.id,
-      workspace_id: data.workspace_id,
-    })
-
-    if (result.success && result.task) {
-      setData((prev: any) => ({
-        ...prev,
-        sections: prev.sections.map((s: any) => ({
-          ...s,
-          tasks: s.tasks.map((t: any) => t.id === tempTask.id ? result.task : t)
-        }))
-      }))
-    } else {
-      setBoardError(result.error || "Could not create the task")
+    const removeOptimisticTask = () => {
       setData((prev: any) => ({
         ...prev,
         sections: prev.sections.map((s: any) => ({
@@ -195,6 +204,34 @@ export default function BoardClient({ project }: { project: any }) {
           tasks: s.tasks.filter((t: any) => t.id !== tempTask.id),
         })),
       }))
+    }
+
+    try {
+      const result = await createTask({
+        title,
+        ...placement.input,
+      })
+
+      if (result.success && result.task) {
+        setData((prev: any) => ({
+          ...prev,
+          sections: prev.sections.map((s: any) => ({
+            ...s,
+            tasks: s.tasks.map((t: any) => t.id === tempTask.id ? result.task : t),
+          })),
+        }))
+        setNewTaskTitle("")
+        setAddingToSection(null)
+        router.refresh()
+      } else {
+        removeOptimisticTask()
+        setBoardError(result.error || "Could not create the task")
+      }
+    } catch {
+      removeOptimisticTask()
+      setBoardError("Could not create the task")
+    } finally {
+      setIsCreatingTask(false)
     }
   }
 
@@ -234,15 +271,7 @@ export default function BoardClient({ project }: { project: any }) {
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="flex h-full min-h-0 flex-col bg-[#18181b] p-4 sm:p-6">
-        <div className="mb-4 flex shrink-0 items-center justify-between gap-4 border-b border-[#3f3f46] pb-3">
-          <button
-            onClick={() => data.sections[0] && setAddingToSection(groupMode === "workflow" ? "status:incomplete" : data.sections[0].id)}
-            disabled={data.sections.length === 0}
-            className="inline-flex h-9 items-center gap-2 rounded-full bg-[#0075de] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#005bab] disabled:cursor-not-allowed disabled:opacity-40 shadow-sm"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add task
-          </button>
+        <div className="mb-4 flex shrink-0 items-center justify-end gap-4 border-b border-[#3f3f46] pb-3">
           <div className="flex items-center gap-3">
             <span className="hidden text-xs font-medium text-[#a1a1aa] lg:block">
               {groupMode === "workflow"
@@ -252,14 +281,22 @@ export default function BoardClient({ project }: { project: any }) {
             <div className="flex rounded-lg border border-[#3f3f46] bg-[#202023] p-0.5" aria-label="Board grouping">
               <button
                 type="button"
-                onClick={() => setGroupMode("workflow")}
+                onClick={() => {
+                  setGroupMode("workflow")
+                  setAddingToSection(null)
+                  setNewTaskTitle("")
+                }}
                 className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${groupMode === "workflow" ? "bg-[#0075de] text-white" : "text-[#a1a1aa] hover:text-white"}`}
               >
                 Workflow
               </button>
               <button
                 type="button"
-                onClick={() => setGroupMode("sections")}
+                onClick={() => {
+                  setGroupMode("sections")
+                  setAddingToSection(null)
+                  setNewTaskTitle("")
+                }}
                 className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${groupMode === "sections" ? "bg-[#0075de] text-white" : "text-[#a1a1aa] hover:text-white"}`}
               >
                 Sections
@@ -282,31 +319,102 @@ export default function BoardClient({ project }: { project: any }) {
                 <h3 className="truncate text-xs font-bold uppercase tracking-wider text-[#f4f4f5]">{section.name}</h3>
                 <span className="rounded-full bg-[#27272a] px-2 py-0.5 text-[10px] font-bold text-[#a1a1aa]">{section.tasks.length}</span>
               </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover/section:opacity-100 transition-opacity">
-                <button
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
-                  aria-label="Add task to section"
-                  onClick={() => setAddingToSection(section.id)}
-                  disabled={!section.manualTransition}
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              </div>
             </div>
             
-            <Droppable droppableId={section.id} type="task" isDropDisabled={!section.manualTransition}>
+            <Droppable
+              droppableId={section.id}
+              type="task"
+              isDropDisabled={!section.manualTransition || (groupMode === "sections" && !canManageTasks)}
+            >
               {(provided, snapshot) => (
                 <div 
                   ref={provided.innerRef} 
                   {...provided.droppableProps}
                    className={`min-h-[120px] flex-1 space-y-2.5 rounded-xl border border-[#3f3f46] bg-[#18181b]/50 p-2.5 transition-colors ${snapshot.isDraggingOver ? "border-[#0075de]/50 bg-[#202023]" : ""}`}
                 >
+                  {section.manualTransition ? (
+                    addingToSection === section.id ? (
+                      <form
+                        className="space-y-2 rounded-lg border border-[#3f3f46] bg-[#202023] p-2 shadow-sm"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          void handleAddTask(section)
+                        }}
+                      >
+                        <input
+                          ref={inputRef}
+                          type="text"
+                          value={newTaskTitle}
+                          disabled={isCreatingTask}
+                          onChange={(event) => setNewTaskTitle(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape" && !isCreatingTask) {
+                              setAddingToSection(null)
+                              setNewTaskTitle("")
+                            }
+                          }}
+                          placeholder={`Task name in ${section.name}`}
+                          aria-label={`Task name in ${section.name}`}
+                          className="h-9 w-full rounded-md border border-[#0075de] bg-[#18181b] px-3 text-xs text-[#f4f4f5] outline-none disabled:opacity-60"
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="submit"
+                            disabled={isCreatingTask || !newTaskTitle.trim()}
+                            className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-[#005bab] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isCreatingTask ? "Adding..." : "Add task"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isCreatingTask}
+                            onClick={() => {
+                              setAddingToSection(null)
+                              setNewTaskTitle("")
+                            }}
+                            className="rounded-md p-1 text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5] disabled:opacity-50"
+                            aria-label="Cancel adding task"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBoardError("")
+                          setAddingToSection(section.id)
+                        }}
+                        className="group/addtask flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-[#a1a1aa] transition-colors hover:bg-[#202023] hover:text-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
+                        aria-label={`Add task to ${section.name}`}
+                      >
+                        <Plus className="h-3.5 w-3.5 text-[#71717a] transition-colors group-hover/addtask:text-[#0075de]" />
+                        Add task
+                      </button>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      title={`${section.name} is controlled by the quality review workflow`}
+                      className="flex h-8 w-full cursor-not-allowed items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-[#71717a] opacity-70"
+                      aria-label={`Add task to ${section.name} unavailable; this status is controlled by quality review`}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add task
+                      <span className="ml-auto text-[10px]">Quality controlled</span>
+                    </button>
+                  )}
                   {section.tasks.map((task: any, index: number) => (
                     <Draggable
                       key={task.id}
                       draggableId={task.id}
                       index={index}
-                      isDragDisabled={groupMode === "workflow" && !section.manualTransition}
+                      isDragDisabled={
+                        (groupMode === "workflow" && !section.manualTransition)
+                        || (groupMode === "sections" && !canManageTasks)
+                      }
                     >
                       {(provided, snapshot) => (
                         <div
@@ -398,56 +506,11 @@ export default function BoardClient({ project }: { project: any }) {
                 </div>
               )}
             </Droppable>
-
-            {/* Add Task input */}
-            {section.manualTransition ? <div className="mt-2 group/addtask">
-              {addingToSection === section.id ? (
-                <div className="space-y-2 rounded-lg border border-[#3f3f46] bg-[#202023] p-2 shadow-md">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={newTaskTitle}
-                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleAddTask(section)
-                      if (e.key === "Escape") { setAddingToSection(null); setNewTaskTitle("") }
-                    }}
-                    placeholder="Task name"
-                     className="h-9 w-full rounded-md border border-[#0075de] bg-[#18181b] px-3 text-xs text-[#f4f4f5] outline-none"
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleAddTask(section)}
-                       className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-[#005bab]"
-                    >
-                      Add task
-                    </button>
-                    <button
-                      onClick={() => { setAddingToSection(null); setNewTaskTitle("") }}
-                      className="p-1 text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a] rounded-md"
-                      aria-label="Cancel"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setAddingToSection(section.id)}
-                   className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-[#a1a1aa] transition-colors hover:bg-[#202023] hover:text-[#f4f4f5]"
-                >
-                  <Plus className="w-3.5 h-3.5 text-[#71717a] group-hover/addtask:text-[#0075de]" />
-                  Add task
-                </button>
-              )}
-            </div> : (
-              <p className="mt-2 px-3 text-[11px] leading-4 text-[#71717a]">Managed by quality review actions</p>
-            )}
             </div>
           ))}
         
          {/* Add Section Placeholder */}
-          {groupMode === "sections" ? <div className="w-[calc(100vw-3rem)] shrink-0 sm:w-[320px]">
+          {groupMode === "sections" && canManageTasks ? <div className="w-[calc(100vw-3rem)] shrink-0 sm:w-[320px]">
             {isAddingSection ? (
               <div className="rounded-xl border border-[#3f3f46] bg-[#202023] p-3 shadow-md">
                 <input
@@ -466,12 +529,14 @@ export default function BoardClient({ project }: { project: any }) {
                 />
                 <div className="mt-2.5 flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={() => void handleAddSection()}
                      className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white hover:bg-[#005bab]"
                   >
                     Add section
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       setIsAddingSection(false)
                       setNewSectionName("")
@@ -484,6 +549,7 @@ export default function BoardClient({ project }: { project: any }) {
               </div>
             ) : (
               <button
+                type="button"
                 onClick={() => setIsAddingSection(true)}
                  className="flex h-10 w-full items-center justify-center rounded-xl border border-dashed border-[#3f3f46] text-xs font-semibold text-[#a1a1aa] transition-colors hover:bg-[#202023] hover:text-[#f4f4f5]"
               >

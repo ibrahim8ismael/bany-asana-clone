@@ -26,6 +26,7 @@ import {
   createTask,
   deleteClient,
   deleteProject,
+  getClientTaskPage,
   getProjectMemberManagement,
   setClientArchived,
   updateProject,
@@ -49,6 +50,7 @@ const TaskDrawer = dynamic(() => import("@/components/task-drawer"), { ssr: fals
 
 type ClientScope = "active" | "archived"
 type WorkScope = "project" | "direct"
+type ClientTaskScope = "active" | "archived"
 
 function isTaskOverdue(task: any) {
   return Boolean(task.due_date)
@@ -118,6 +120,13 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
   const [workScope, setWorkScope] = useState<WorkScope>("project")
   const [selectedTask, setSelectedTask] = useState<any>(null)
   const [search, setSearch] = useState("")
+  const [clientTaskScope, setClientTaskScope] = useState<ClientTaskScope>("active")
+  const [clientTaskSearch, setClientTaskSearch] = useState("")
+  const [debouncedClientTaskSearch, setDebouncedClientTaskSearch] = useState("")
+  const [clientTaskPage, setClientTaskPage] = useState(1)
+  const [clientTaskData, setClientTaskData] = useState<any | null>(null)
+  const [clientTasksLoading, setClientTasksLoading] = useState(false)
+  const [clientTasksError, setClientTasksError] = useState("")
   const [addingStage, setAddingStage] = useState<TaskWorkflowStageId | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState("")
   const [actionError, setActionError] = useState("")
@@ -171,6 +180,60 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
   }, [activeClient, selectedProjectId])
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(
+      () => setDebouncedClientTaskSearch(clientTaskSearch.trim()),
+      250,
+    )
+    return () => window.clearTimeout(timeoutId)
+  }, [clientTaskSearch])
+
+  useEffect(() => {
+    setClientTaskScope("active")
+    setClientTaskSearch("")
+    setDebouncedClientTaskSearch("")
+    setClientTaskPage(1)
+    setClientTaskData(null)
+    setClientTasksError("")
+  }, [activeClient?.id])
+
+  useEffect(() => {
+    if (!activeClient?.id) return
+
+    let cancelled = false
+    setClientTasksLoading(true)
+    setClientTasksError("")
+
+    void getClientTaskPage({
+      clientId: activeClient.id,
+      scope: clientTaskScope,
+      page: clientTaskPage,
+      search: debouncedClientTaskSearch,
+    }).then((result) => {
+      if (cancelled) return
+      if (!result.success) {
+        setClientTaskData(null)
+        setClientTasksError(result.error || "Client tasks could not be loaded")
+        return
+      }
+      setClientTaskData(result.data)
+      if (clientTaskPage > result.data.totalPages) {
+        setClientTaskPage(result.data.totalPages)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setClientTaskData(null)
+        setClientTasksError("Client tasks could not be loaded")
+      }
+    }).finally(() => {
+      if (!cancelled) setClientTasksLoading(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeClient?.id, clientTaskPage, clientTaskScope, debouncedClientTaskSearch])
+
+  useEffect(() => {
     const taskId = searchParams?.get("taskId")
     if (!taskId || selectedTask) return
     const task = findTask(clients, taskId)
@@ -179,11 +242,9 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
     return () => window.clearTimeout(timeoutId)
   }, [clients, searchParams, selectedTask])
 
-  const allClientTasks = useMemo(() => activeClient
-    ? [...activeClient.tasks, ...activeClient.projects.flatMap((project: any) => project.tasks)]
-    : [], [activeClient])
-  const completedCount = countCompletedTasks(allClientTasks)
-  const clientProgress = allClientTasks.length > 0 ? Math.round((completedCount / allClientTasks.length) * 100) : 0
+  const clientTaskTotal = clientTaskData
+    ? clientTaskData.counts.active + clientTaskData.counts.archived
+    : null
 
   const scopedTasks = useMemo(() => {
     const source = workScope === "project" ? selectedProject?.tasks || [] : activeClient?.tasks || []
@@ -209,6 +270,12 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
         tasks: project.tasks.map((task: any) => task.id === updatedTask.id ? { ...task, ...updatedTask } : task),
       })),
     }))))
+    setClientTaskData((current: any) => current ? {
+      ...current,
+      tasks: current.tasks.map((task: any) => task.id === updatedTask.id
+        ? { ...task, ...updatedTask, client_project: updatedTask.project || task.client_project }
+        : task),
+    } : current)
     setSelectedTask((current: any) => current?.id === updatedTask.id ? { ...current, ...updatedTask } : current)
   }
 
@@ -419,7 +486,9 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3f3f46] bg-[#202023] px-4 py-4 sm:px-6">
               <div>
                 <h1 className="text-lg font-semibold text-white">{activeClient.name}</h1>
-                <p className="mt-0.5 text-xs text-[#a1a1aa]">{activeClient.projects.length} projects · {activeClient.tasks.length} direct tasks · {clientProgress}% complete</p>
+                <p className="mt-0.5 text-xs text-[#a1a1aa]">
+                  {activeClient.projects.length} projects · {clientTaskTotal === null ? "Loading task totals…" : `${clientTaskTotal} tasks`}
+                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button onClick={() => setIsMemberModalOpen(true)} className="inline-flex items-center gap-1.5 rounded-md border border-[#3f3f46] px-3 py-1.5 text-xs font-semibold text-white"><UserPlus className="h-3.5 w-3.5" /> People</button>
@@ -443,6 +512,111 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
                     {actionNotice}
                   </div>
                 ) : null}
+
+                <section aria-labelledby="client-tasks-heading">
+                  <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+                    <div>
+                      <h2 id="client-tasks-heading" className="text-xl font-semibold tracking-tight text-white">Tasks</h2>
+                      <p className="mt-1 text-sm text-[#a1a1aa]">Direct work and tasks across every project belonging to {activeClient.name}</p>
+                    </div>
+                    <label className="block">
+                      <span className="sr-only">Search client tasks</span>
+                      <input
+                        value={clientTaskSearch}
+                        onChange={(event) => {
+                          setClientTaskSearch(event.target.value)
+                          setClientTaskPage(1)
+                        }}
+                        placeholder="Search client tasks"
+                        className="h-9 w-64 max-w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-xs text-white outline-none placeholder:text-[#71717a] focus:border-[#0075de]"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b]">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#27272a] px-4 py-3">
+                      <div role="tablist" aria-label="Client task archive state" className="flex rounded-lg border border-[#3f3f46] bg-[#131316] p-1">
+                        {(["active", "archived"] as const).map((scope) => (
+                          <button
+                            key={scope}
+                            type="button"
+                            role="tab"
+                            aria-selected={clientTaskScope === scope}
+                            onClick={() => {
+                              setClientTaskScope(scope)
+                              setClientTaskPage(1)
+                            }}
+                            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${clientTaskScope === scope ? "bg-[#27272a] text-white" : "text-[#a1a1aa] hover:text-white"}`}
+                          >
+                            {scope === "active" ? "Active tasks" : "Archived tasks"} ({clientTaskData?.counts?.[scope] ?? "…"})
+                          </button>
+                        ))}
+                      </div>
+                      {clientTaskData ? (
+                        <span className="text-xs text-[#71717a]">
+                          {clientTaskData.total === 0
+                            ? "No matching tasks"
+                            : `${(clientTaskData.page - 1) * clientTaskData.pageSize + 1}–${Math.min(clientTaskData.page * clientTaskData.pageSize, clientTaskData.total)} of ${clientTaskData.total}`}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {clientTasksLoading && !clientTaskData ? (
+                      <div className="flex min-h-40 items-center justify-center gap-2 px-4 py-10 text-sm text-[#a1a1aa]" aria-live="polite">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading client tasks…
+                      </div>
+                    ) : clientTasksError ? (
+                      <p role="alert" className="m-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{clientTasksError}</p>
+                    ) : clientTaskData?.tasks?.length ? (
+                      <div className={clientTasksLoading ? "opacity-60" : ""} aria-busy={clientTasksLoading}>
+                        <div className="hidden grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_8rem] gap-4 border-b border-[#27272a] px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-[#71717a] md:grid">
+                          <span>Task</span><span>Assignee</span><span>Project</span><span>Status</span>
+                        </div>
+                        <div className="divide-y divide-[#27272a]">
+                          {clientTaskData.tasks.map((task: any) => {
+                            const stage = TASK_WORKFLOW_STAGES.find((entry) => entry.id === task.status)
+                            return (
+                              <button
+                                key={task.id}
+                                type="button"
+                                onClick={() => setSelectedTask(task)}
+                                className="grid w-full gap-2 px-4 py-3 text-left transition-colors hover:bg-[#202023] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0075de] md:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_8rem] md:items-center md:gap-4"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-medium text-white">{task.title}</span>
+                                  {task.parent_task_id ? <span className="mt-0.5 block text-[10px] text-[#71717a]">Subtask</span> : null}
+                                </span>
+                                <span className="truncate text-xs text-[#d4d4d8]">
+                                  {task.assignee?.full_name || "Unassigned"}
+                                </span>
+                                <span className="truncate text-xs text-[#a1a1aa]">
+                                  {task.client_project?.name || "Direct client task"}
+                                </span>
+                                <span className="text-xs font-medium text-[#d4d4d8]">
+                                  {stage?.label || task.status.replace(/_/g, " ")}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {clientTaskData.totalPages > 1 ? (
+                          <div className="flex items-center justify-between border-t border-[#27272a] px-4 py-3">
+                            <button type="button" onClick={() => setClientTaskPage((page) => Math.max(1, page - 1))} disabled={clientTaskData.page <= 1 || clientTasksLoading} className="rounded-md border border-[#3f3f46] px-3 py-1.5 text-xs text-white disabled:opacity-40">Previous</button>
+                            <span className="text-xs text-[#71717a]">Page {clientTaskData.page} of {clientTaskData.totalPages}</span>
+                            <button type="button" onClick={() => setClientTaskPage((page) => Math.min(clientTaskData.totalPages, page + 1))} disabled={clientTaskData.page >= clientTaskData.totalPages || clientTasksLoading} className="rounded-md border border-[#3f3f46] px-3 py-1.5 text-xs text-white disabled:opacity-40">Next</button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="px-6 py-12 text-center">
+                        <h3 className="text-sm font-semibold text-white">No {clientTaskScope} tasks</h3>
+                        <p className="mt-1 text-xs text-[#71717a]">
+                          {clientTaskSearch ? "Try a different task title." : `No ${clientTaskScope} task records are linked to this client.`}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </section>
 
                 {/* Projects Section */}
                 <section>

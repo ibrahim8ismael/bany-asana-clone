@@ -20,6 +20,9 @@
     "db:import:asana": "tsx scripts/import-asana-package.ts",
     "db:import:asana-jsonl": "tsx scripts/import-asana-jsonl.ts",
     "db:repair:asana-jsonl-ownership": "tsx scripts/repair-asana-jsonl-ownership.ts",
+    "db:repair:asana-jsonl-client-tasks": "tsx scripts/repair-asana-jsonl-client-tasks.ts",
+    "audit:client-tasks": "tsx scripts/audit-client-tasks.ts",
+    "deploy:production": "./scripts/deploy-production.sh",
     "skills:build": "node scripts/build-skills-manifest.mjs"
   },
   "dependencies": {

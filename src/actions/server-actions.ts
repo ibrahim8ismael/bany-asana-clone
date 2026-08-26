@@ -16,18 +16,22 @@ import {
   getDefaultWorkspaceForUser,
   isSuperAdminUser,
   projectAccessWhere,
+  requiredTaskUpdateAccess,
   taskAccessWhere,
   workspaceAccessWhere,
 } from "@/lib/permissions"
 import type { ProjectAccessLevel } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
+import { canInspectAllClientTasks, clientTaskScopeWhere, type ClientTaskArchiveScope } from "@/lib/client-task-scope"
+import { TASK_CARD_SELECT } from "@/lib/task-card-select"
 import { parseTaskUpdateInput } from "@/lib/task-input"
-import { resolveTaskPlacement } from "@/lib/task-placement"
+import { nextTaskPosition, resolveTaskPlacement } from "@/lib/task-placement"
 import { buildProjectCreateData, DEFAULT_PROJECT_SECTIONS } from "@/lib/project-creation"
 import {
   effectiveProjectRole,
   isProjectRole,
+  isWorkspaceRole,
   validateProjectMemberAssignments,
   type ProjectMemberAssignment,
   type ProjectRole,
@@ -519,6 +523,17 @@ export async function createTask(data: {
     const resolvedClientId = placement.clientId
     const resolvedWorkspaceId = placement.workspaceId
 
+    let resolvedSectionId = placement.sectionId || undefined
+    if (resolvedProjectId && !resolvedSectionId) {
+      const firstProjectSection = await prisma.section.findFirst({
+        where: { project_id: resolvedProjectId },
+        orderBy: { position: "asc" },
+        select: { id: true },
+      })
+      if (!firstProjectSection) return { error: "Add a project section before creating tasks" }
+      resolvedSectionId = firstProjectSection.id
+    }
+
     const workspaceAllowed = await canAccessWorkspace(userId, resolvedWorkspaceId, "write")
     if (!workspaceAllowed) return { error: "Not found" }
 
@@ -540,7 +555,6 @@ export async function createTask(data: {
     })
     if (status !== "incomplete" && transitionError) return { error: transitionError }
 
-    let resolvedSectionId = placement.sectionId || undefined
     if (!resolvedProjectId && resolvedClientId) {
       resolvedSectionId = undefined
     }
@@ -559,13 +573,13 @@ export async function createTask(data: {
       resolvedSectionId = recentSection.id
     }
 
-    let newPosition = 1000
+    let newPosition = nextTaskPosition(null)
     if (resolvedSectionId) {
       const lastTask = await prisma.task.findFirst({
         where: { section_id: resolvedSectionId },
         orderBy: { position: "desc" },
       })
-      newPosition = (lastTask?.position ?? 0) + 1000
+      newPosition = nextTaskPosition(lastTask?.position)
     } else if (resolvedClientId && !resolvedProjectId) {
       const lastTask = await prisma.task.findFirst({
         where: {
@@ -575,7 +589,7 @@ export async function createTask(data: {
         },
         orderBy: { position: "desc" },
       })
-      newPosition = (lastTask?.position ?? 0) + 1000
+      newPosition = nextTaskPosition(lastTask?.position)
     }
 
     const task = await prisma.task.create({
@@ -1603,11 +1617,7 @@ export async function updateTask(
     if (!parsedInput.success) return { error: parsedInput.error }
     const data = parsedInput.data
 
-    const administersTask = data.assignee_id !== undefined
-      || data.project_id !== undefined
-      || data.client_id !== undefined
-      || data.section_id !== undefined
-    const requiredAccess: ProjectAccessLevel = administersTask ? "manage" : "edit"
+    const requiredAccess: ProjectAccessLevel = requiredTaskUpdateAccess(data)
     const taskContext = await getAccessibleTaskContext(userId, taskId, requiredAccess)
     if (!taskContext) return { error: "Not found" }
     const beforeSnapshot = await getTaskHistorySnapshot(taskId)
@@ -1762,9 +1772,7 @@ export async function updateTask(
       updateData.client_id = resolvedClientId
     }
 
-    if (data.section_id === null) {
-      updateData.section_id = null
-    } else if (nextSectionContext) {
+    if (nextSectionContext) {
       updateData.section_id = nextSectionContext.id
     }
 
@@ -1782,16 +1790,20 @@ export async function updateTask(
       updateData.section_id = recentSection.id
     }
 
-    if (resolvedProjectId && data.section_id === undefined) {
-      const currentSectionBelongsToProject = taskContext.section?.project_id === resolvedProjectId
+    if (resolvedProjectId && (data.section_id === null || data.section_id === undefined)) {
+      const currentSectionBelongsToProject = data.section_id === undefined
+        && taskContext.section?.project_id === resolvedProjectId
       if (!currentSectionBelongsToProject) {
         const firstSection = await prisma.section.findFirst({
           where: { project_id: resolvedProjectId },
           orderBy: { position: "asc" },
+          select: { id: true },
         })
-
-        updateData.section_id = firstSection?.id || null
+        if (!firstSection) return { error: "Add a project section before moving tasks into this project" }
+        updateData.section_id = firstSection.id
       }
+    } else if (data.section_id === null) {
+      updateData.section_id = null
     }
 
     if (!resolvedProjectId && resolvedClientId && data.section_id === undefined) {
@@ -2370,6 +2382,118 @@ export async function getUserClients() {
   } catch (error) {
     console.error("Failed to get clients:", error)
     return []
+  }
+}
+
+const CLIENT_TASK_PAGE_SIZE = 50
+
+export async function getClientTaskPage(input: {
+  clientId: string
+  scope?: ClientTaskArchiveScope
+  page?: number
+  search?: string
+}) {
+  try {
+    const userId = await getSessionUserId()
+    if (!userId) return { success: false as const, error: "Unauthorized" }
+
+    const clientId = typeof input.clientId === "string" ? input.clientId.trim() : ""
+    const scope: ClientTaskArchiveScope = input.scope === "archived" ? "archived" : "active"
+    const page = Number.isInteger(input.page) ? Math.max(1, input.page || 1) : 1
+    const search = typeof input.search === "string" ? input.search.trim().slice(0, 200) : ""
+    if (!clientId) return { success: false as const, error: "Client is required" }
+
+    const [activeWorkspace, superAdmin] = await Promise.all([
+      getActiveWorkspaceForUser(userId),
+      isSuperAdminUser(userId),
+    ])
+    if (!activeWorkspace) return { success: false as const, error: "Not found" }
+
+    const client = await prisma.client.findFirst({
+      where: {
+        id: clientId,
+        workspace_id: activeWorkspace.id,
+        workspace: workspaceAccessWhere(userId, "view", superAdmin),
+      },
+      select: {
+        id: true,
+        workspace_id: true,
+        workspace: {
+          select: {
+            owner_id: true,
+            members: {
+              where: { user_id: userId },
+              select: { role: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    })
+    if (!client) return { success: false as const, error: "Not found" }
+
+    const rawWorkspaceRole = client.workspace.members[0]?.role ?? null
+    const unrestricted = canInspectAllClientTasks({
+      userId,
+      workspaceOwnerId: client.workspace.owner_id,
+      workspaceRole: isWorkspaceRole(rawWorkspaceRole) ? rawWorkspaceRole : null,
+      isSuperAdmin: superAdmin,
+    })
+    const membershipScope = clientTaskScopeWhere({
+      clientId: client.id,
+      workspaceId: client.workspace_id,
+      topLevelOnly: false,
+    })
+    const authorizedScope: Prisma.TaskWhereInput = unrestricted
+      ? membershipScope
+      : { AND: [membershipScope, taskAccessWhere(userId, "view", false)] }
+    const selectedScope: Prisma.TaskWhereInput = {
+      AND: [authorizedScope, { archived: scope === "archived" }],
+    }
+    const searchScope: Prisma.TaskWhereInput = search
+      ? { AND: [selectedScope, { title: { contains: search, mode: "insensitive" } }] }
+      : selectedScope
+
+    const [activeCount, archivedCount, filteredCount, rows] = await prisma.$transaction([
+      prisma.task.count({ where: { AND: [authorizedScope, { archived: false }] } }),
+      prisma.task.count({ where: { AND: [authorizedScope, { archived: true }] } }),
+      prisma.task.count({ where: searchScope }),
+      prisma.task.findMany({
+        where: searchScope,
+        orderBy: [{ updated_at: "desc" }, { id: "asc" }],
+        skip: (page - 1) * CLIENT_TASK_PAGE_SIZE,
+        take: CLIENT_TASK_PAGE_SIZE,
+        select: {
+          ...TASK_CARD_SELECT,
+          task_links: {
+            where: { project: { client_id: client.id } },
+            select: {
+              project: { select: { id: true, name: true, color: true } },
+            },
+            take: 1,
+          },
+        },
+      }),
+    ])
+
+    const totalPages = Math.max(1, Math.ceil(filteredCount / CLIENT_TASK_PAGE_SIZE))
+    return {
+      success: true as const,
+      data: {
+        counts: { active: activeCount, archived: archivedCount },
+        page,
+        pageSize: CLIENT_TASK_PAGE_SIZE,
+        total: filteredCount,
+        totalPages,
+        tasks: rows.map(({ task_links: taskLinks, ...task }) => ({
+          ...task,
+          client_project: task.project || taskLinks[0]?.project || null,
+        })),
+      },
+    }
+  } catch (error) {
+    console.error("Failed to get client task page:", error)
+    return { success: false as const, error: "Client tasks could not be loaded" }
   }
 }
 

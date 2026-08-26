@@ -3,7 +3,8 @@
  *
  * These tests validate the core import rules:
  *   - Source projects create Clients, not TaskFlow Projects
- *   - Tasks are imported with null client_id, project_id, section_id
+ *   - Effective source-project membership becomes direct Client placement
+ *   - Native project_id and section_id remain null in this import mode
  *   - No TaskProjectLink records
  *   - Subtasks preserve parent links but not associations
  *   - Idempotent behavior
@@ -13,6 +14,7 @@
 import { describe, it, before, after } from "node:test"
 import assert from "node:assert/strict"
 import crypto from "node:crypto"
+import { resolveAsanaTaskClientId } from "../src/lib/asana-client-task-mapping"
 
 // ---------------------------------------------------------------------------
 // Re-implement core utility functions from the import script for unit testing
@@ -158,6 +160,10 @@ const SAMPLE_TASK = {
 // ---------------------------------------------------------------------------
 
 describe("Asana JSONL Import — Core Rules", () => {
+  const clientIdByProjectGid = new Map([
+    ["1111111111111111", deterministicId("asana-client", "1111111111111111")],
+    ["2222222222222222", deterministicId("asana-client", "2222222222222222")],
+  ])
   // Test 1: Source project creates a Client, not a TaskFlow Project
   it("1. source project creates Client, not TaskFlow Project", () => {
     const project = SAMPLE_PROJECTS[0]
@@ -174,14 +180,14 @@ describe("Asana JSONL Import — Core Rules", () => {
     assert.notEqual(id1, id2, "Two projects with same name but different GIDs must not share a Client ID")
   })
 
-  // Test 3: Task with direct project membership → client_id = null
-  it("3. task with direct project membership has client_id null", () => {
+  // Test 3: Task with effective source membership → direct Client placement
+  it("3. task with effective source membership resolves client_id", () => {
     const task = SAMPLE_TASK
-    // Even though effective_primary_project_gid is set, client_id must be null
     assert.equal(task.effective_primary_project_gid, "1111111111111111")
-    // Import rule: client_id = null regardless
-    const clientId = null // Import always sets this to null
-    assert.equal(clientId, null)
+    assert.equal(
+      resolveAsanaTaskClientId(task, clientIdByProjectGid),
+      deterministicId("asana-client", "1111111111111111"),
+    )
   })
 
   // Test 4: Task with effective project membership → project_id = null
@@ -223,13 +229,9 @@ describe("Asana JSONL Import — Core Rules", () => {
     assert.notEqual(childId, parentId)
   })
 
-  // Test 8: Subtask does NOT inherit parent's Client
-  it("8. subtask does not inherit parent client", () => {
-    // Parent has client_id = null (import rule)
-    // Even if parent HAD a client, child must NOT inherit it
-    const parentClientId = null
-    const childClientId = null // Import ALWAYS sets this to null
-    assert.equal(childClientId, null, "Child must not inherit parent client")
+  // Test 8: A task without effective project membership stays detached.
+  it("8. task without effective membership remains without a client", () => {
+    assert.equal(resolveAsanaTaskClientId({ effective_primary_project_gid: "" }, clientIdByProjectGid), null)
   })
 
   // Test 9: Subtask does NOT inherit parent's Project
@@ -259,17 +261,14 @@ describe("Asana JSONL Import — Core Rules", () => {
     assert.equal(id1, id2, "Same import key must always produce the same ID")
   })
 
-  // Test 13: Re-running import explicitly removes old associations
-  it("13. update branch explicitly sets null associations", () => {
-    // The import script's upsert update branch always includes:
-    // client_id: null, project_id: null, section_id: null
-    // This test verifies the contract
+  // Test 13: Re-running import preserves canonical Client placement.
+  it("13. update branch keeps client placement and clears native project placement", () => {
     const updateData = {
-      client_id: null,
+      client_id: resolveAsanaTaskClientId(SAMPLE_TASK, clientIdByProjectGid),
       project_id: null,
       section_id: null,
     }
-    assert.equal(updateData.client_id, null)
+    assert.equal(updateData.client_id, deterministicId("asana-client", "1111111111111111"))
     assert.equal(updateData.project_id, null)
     assert.equal(updateData.section_id, null)
   })
@@ -322,22 +321,21 @@ describe("Asana JSONL Import — Core Rules", () => {
     assert.ok(dryRun, "Dry run mode gates all database mutations")
   })
 
-  // Test 19: Every imported Client has zero imported Tasks
-  it("19. client-task independence verified by null client_id on all tasks", () => {
-    // All tasks have client_id = null, so no client has any imported tasks
-    const taskClientId = null
-    assert.equal(taskClientId, null, "No imported task should reference a client")
+  // Test 19: Imported tasks are discoverable from their Client.
+  it("19. imported task resolves to its source-backed Client", () => {
+    const taskClientId = resolveAsanaTaskClientId(SAMPLE_TASK, clientIdByProjectGid)
+    assert.equal(taskClientId, deterministicId("asana-client", "1111111111111111"))
   })
 
-  // Test 20: All tasks have zero associations
-  it("20. all imported tasks have zero client/project/section/link associations", () => {
+  // Test 20: Imported tasks remain direct Client work, not native Project work.
+  it("20. imported task has Client placement without Project/Section/link placement", () => {
     const importedTask = {
-      client_id: null,
+      client_id: resolveAsanaTaskClientId(SAMPLE_TASK, clientIdByProjectGid),
       project_id: null,
       section_id: null,
       projectLinks: [],
     }
-    assert.equal(importedTask.client_id, null)
+    assert.equal(importedTask.client_id, deterministicId("asana-client", "1111111111111111"))
     assert.equal(importedTask.project_id, null)
     assert.equal(importedTask.section_id, null)
     assert.equal(importedTask.projectLinks.length, 0)

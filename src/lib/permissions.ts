@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { PROJECT_MEMBER_ROLES, WORKSPACE_ROLES, type WorkspaceRole } from "@/lib/project-membership"
+import { PROJECT_MEMBER_ROLES, WORKSPACE_ROLES, type ProjectRole, type WorkspaceRole } from "@/lib/project-membership"
 
 export type WorkspaceAccessLevel = "view" | "write" | "admin"
 export type ProjectAccessLevel = "view" | "comment" | "edit" | "manage"
@@ -51,6 +51,39 @@ function projectRolesFor(level: ProjectAccessLevel) {
     default:
       return PROJECT_VIEW_ROLES
   }
+}
+
+export function projectRoleGrantsAccess({
+  role,
+  isOwner = false,
+  isSuperAdmin = false,
+  level = "view",
+}: {
+  role: ProjectRole | null
+  isOwner?: boolean
+  isSuperAdmin?: boolean
+  level?: ProjectAccessLevel
+}) {
+  const allowedRoles = projectRolesFor(level) as readonly ProjectRole[]
+  return isSuperAdmin || isOwner || (role !== null && allowedRoles.includes(role))
+}
+
+export function requiredTaskUpdateAccess(input: {
+  title?: unknown
+  description_rich_text?: unknown
+  status?: unknown
+  priority?: unknown
+  due_date?: unknown
+  assignee_id?: unknown
+  project_id?: unknown
+  client_id?: unknown
+  section_id?: unknown
+}): ProjectAccessLevel {
+  const changesAdministration = input.assignee_id !== undefined
+    || input.project_id !== undefined
+    || input.client_id !== undefined
+    || input.section_id !== undefined
+  return changesAdministration ? "manage" : "edit"
 }
 
 export function workspaceAccessWhere(
@@ -111,24 +144,21 @@ export function taskAccessWhere(
 ): Prisma.TaskWhereInput {
   if (isSuperAdmin) return {}
 
-  const projectLevel = level === "view" ? "view" : level === "comment" ? "comment" : level === "edit" ? "edit" : "manage"
   const workspaceLevel = workspaceLevelForProjectLevel(level)
 
   const rules: Prisma.TaskWhereInput[] = [
-      {
-        project: projectAccessWhere(userId, projectLevel),
+    projectTaskAccessWhere(userId, level),
+    {
+      project_id: null,
+      client: {
+        workspace: workspaceAccessWhere(userId, workspaceLevel),
       },
-      {
-        project_id: null,
-        client: {
-          workspace: workspaceAccessWhere(userId, workspaceLevel),
-        },
-      },
-      {
-        project_id: null,
-        client_id: null,
-        OR: [{ assignee_id: userId }, { creator_id: userId }],
-      },
+    },
+    {
+      project_id: null,
+      client_id: null,
+      OR: [{ assignee_id: userId }, { creator_id: userId }],
+    },
   ]
 
   if (level === "view" || level === "comment") {
@@ -136,6 +166,16 @@ export function taskAccessWhere(
   }
 
   return { OR: rules }
+}
+
+export function projectTaskAccessWhere(
+  userId: string,
+  level: ProjectAccessLevel = "view",
+): Prisma.TaskWhereInput {
+  return {
+    project_id: { not: null },
+    project: projectAccessWhere(userId, level),
+  }
 }
 
 export interface ProjectAccessContext {

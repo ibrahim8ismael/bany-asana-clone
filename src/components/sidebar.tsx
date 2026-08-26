@@ -89,7 +89,6 @@ export default function Sidebar({
   const router = useRouter()
   const workspaceMenuRef = useRef<HTMLDivElement>(null)
   const clientsRef = useRef(clients)
-  clientsRef.current = clients
   const [workspacePending, startWorkspaceTransition] = useTransition()
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
   const [isClientModalOpen, setIsClientModalOpen] = useState(false)
@@ -112,6 +111,10 @@ export default function Sidebar({
     () => clients.map((client) => ({ id: client.id, name: client.name, color: client.color })),
     [clients]
   )
+
+  useEffect(() => {
+    clientsRef.current = clients
+  }, [clients])
 
   useEffect(() => {
     setHasLoadedCollapsedState(false)
