@@ -7,6 +7,7 @@ node_modules
 *.db
 *.db-journal
 *.dump
+*.jsonl
 README.md
 .agent
 .agents

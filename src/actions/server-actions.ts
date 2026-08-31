@@ -44,6 +44,7 @@ import {
   type TaskWorkflowStageId,
   validateManualTaskTransition,
 } from "@/lib/workflow"
+import { CLIENT_TASK_BOARD_COLUMN_PAGE_SIZE, mergeClientTaskBoardCounts } from "@/lib/client-task-board"
 
 const taskInclude = {
   assignee: { select: USER_PUBLIC_SELECT },
@@ -2387,6 +2388,85 @@ export async function getUserClients() {
 
 const CLIENT_TASK_PAGE_SIZE = 50
 
+interface ClientTaskAccessContext {
+  client: {
+    id: string
+  }
+  authorizedScope: Prisma.TaskWhereInput
+}
+
+/**
+ * One authorization path shared by every Client task reader (table page, board
+ * summary, board columns). Workspace isolation and client access are checked
+ * here; membership comes from the canonical client-task scope.
+ */
+async function resolveClientTaskAccess(rawClientId: string): Promise<ClientTaskAccessContext | { success: false; error: string }> {
+  const userId = await getSessionUserId()
+  if (!userId) return { success: false, error: "Unauthorized" }
+
+  const clientId = typeof rawClientId === "string" ? rawClientId.trim() : ""
+  if (!clientId) return { success: false, error: "Client is required" }
+
+  const [activeWorkspace, superAdmin] = await Promise.all([
+    getActiveWorkspaceForUser(userId),
+    isSuperAdminUser(userId),
+  ])
+  if (!activeWorkspace) return { success: false, error: "Not found" }
+
+  const client = await prisma.client.findFirst({
+    where: {
+      id: clientId,
+      workspace_id: activeWorkspace.id,
+      workspace: workspaceAccessWhere(userId, "view", superAdmin),
+    },
+    select: {
+      id: true,
+      workspace_id: true,
+      workspace: {
+        select: {
+          owner_id: true,
+          members: {
+            where: { user_id: userId },
+            select: { role: true },
+            take: 1,
+          },
+        },
+      },
+    },
+  })
+  if (!client) return { success: false, error: "Not found" }
+
+  const rawWorkspaceRole = client.workspace.members[0]?.role ?? null
+  const unrestricted = canInspectAllClientTasks({
+    userId,
+    workspaceOwnerId: client.workspace.owner_id,
+    workspaceRole: isWorkspaceRole(rawWorkspaceRole) ? rawWorkspaceRole : null,
+    isSuperAdmin: superAdmin,
+  })
+  const membershipScope = clientTaskScopeWhere({
+    clientId: client.id,
+    workspaceId: client.workspace_id,
+    topLevelOnly: false,
+  })
+  const authorizedScope: Prisma.TaskWhereInput = unrestricted
+    ? membershipScope
+    : { AND: [membershipScope, taskAccessWhere(userId, "view", false)] }
+
+  return {
+    client: { id: client.id },
+    authorizedScope,
+  }
+}
+
+function clientTaskArchiveFilter(scope: ClientTaskArchiveScope): Prisma.TaskWhereInput {
+  return { archived: scope === "archived" }
+}
+
+function clientTaskSearchFilter(search: string | undefined): Prisma.TaskWhereInput | null {
+  const trimmed = typeof search === "string" ? search.trim().slice(0, 200) : ""
+  return trimmed ? { title: { contains: trimmed, mode: "insensitive" } } : null
+}
+
 export async function getClientTaskPage(input: {
   clientId: string
   scope?: ClientTaskArchiveScope
@@ -2394,79 +2474,30 @@ export async function getClientTaskPage(input: {
   search?: string
 }) {
   try {
-    const userId = await getSessionUserId()
-    if (!userId) return { success: false as const, error: "Unauthorized" }
-
-    const clientId = typeof input.clientId === "string" ? input.clientId.trim() : ""
     const scope: ClientTaskArchiveScope = input.scope === "archived" ? "archived" : "active"
     const page = Number.isInteger(input.page) ? Math.max(1, input.page || 1) : 1
-    const search = typeof input.search === "string" ? input.search.trim().slice(0, 200) : ""
-    if (!clientId) return { success: false as const, error: "Client is required" }
+    const access = await resolveClientTaskAccess(input.clientId)
+    if (!("authorizedScope" in access)) return access
 
-    const [activeWorkspace, superAdmin] = await Promise.all([
-      getActiveWorkspaceForUser(userId),
-      isSuperAdminUser(userId),
-    ])
-    if (!activeWorkspace) return { success: false as const, error: "Not found" }
-
-    const client = await prisma.client.findFirst({
-      where: {
-        id: clientId,
-        workspace_id: activeWorkspace.id,
-        workspace: workspaceAccessWhere(userId, "view", superAdmin),
-      },
-      select: {
-        id: true,
-        workspace_id: true,
-        workspace: {
-          select: {
-            owner_id: true,
-            members: {
-              where: { user_id: userId },
-              select: { role: true },
-              take: 1,
-            },
-          },
-        },
-      },
-    })
-    if (!client) return { success: false as const, error: "Not found" }
-
-    const rawWorkspaceRole = client.workspace.members[0]?.role ?? null
-    const unrestricted = canInspectAllClientTasks({
-      userId,
-      workspaceOwnerId: client.workspace.owner_id,
-      workspaceRole: isWorkspaceRole(rawWorkspaceRole) ? rawWorkspaceRole : null,
-      isSuperAdmin: superAdmin,
-    })
-    const membershipScope = clientTaskScopeWhere({
-      clientId: client.id,
-      workspaceId: client.workspace_id,
-      topLevelOnly: false,
-    })
-    const authorizedScope: Prisma.TaskWhereInput = unrestricted
-      ? membershipScope
-      : { AND: [membershipScope, taskAccessWhere(userId, "view", false)] }
+    const authorizedScope = access.authorizedScope
+    const searchFilter = clientTaskSearchFilter(input.search)
     const selectedScope: Prisma.TaskWhereInput = {
-      AND: [authorizedScope, { archived: scope === "archived" }],
+      AND: [authorizedScope, clientTaskArchiveFilter(scope), ...(searchFilter ? [searchFilter] : [])],
     }
-    const searchScope: Prisma.TaskWhereInput = search
-      ? { AND: [selectedScope, { title: { contains: search, mode: "insensitive" } }] }
-      : selectedScope
 
     const [activeCount, archivedCount, filteredCount, rows] = await prisma.$transaction([
       prisma.task.count({ where: { AND: [authorizedScope, { archived: false }] } }),
       prisma.task.count({ where: { AND: [authorizedScope, { archived: true }] } }),
-      prisma.task.count({ where: searchScope }),
+      prisma.task.count({ where: selectedScope }),
       prisma.task.findMany({
-        where: searchScope,
+        where: selectedScope,
         orderBy: [{ updated_at: "desc" }, { id: "asc" }],
         skip: (page - 1) * CLIENT_TASK_PAGE_SIZE,
         take: CLIENT_TASK_PAGE_SIZE,
         select: {
           ...TASK_CARD_SELECT,
           task_links: {
-            where: { project: { client_id: client.id } },
+            where: { project: { client_id: access.client.id } },
             select: {
               project: { select: { id: true, name: true, color: true } },
             },
@@ -2494,6 +2525,103 @@ export async function getClientTaskPage(input: {
   } catch (error) {
     console.error("Failed to get client task page:", error)
     return { success: false as const, error: "Client tasks could not be loaded" }
+  }
+}
+
+export async function getClientTaskBoardSummary(input: {
+  clientId: string
+  scope?: ClientTaskArchiveScope
+  search?: string
+}) {
+  try {
+    const scope: ClientTaskArchiveScope = input.scope === "archived" ? "archived" : "active"
+    const access = await resolveClientTaskAccess(input.clientId)
+    if (!("authorizedScope" in access)) return access
+
+    const searchFilter = clientTaskSearchFilter(input.search)
+    const grouped = await prisma.task.groupBy({
+      by: ["status"],
+      where: {
+        AND: [access.authorizedScope, clientTaskArchiveFilter(scope), ...(searchFilter ? [searchFilter] : [])],
+      },
+      _count: { _all: true },
+    })
+
+    return {
+      success: true as const,
+      data: {
+        counts: mergeClientTaskBoardCounts(grouped.map((row) => ({ status: row.status, count: row._count._all }))),
+      },
+    }
+  } catch (error) {
+    console.error("Failed to get client task board summary:", error)
+    return { success: false as const, error: "Client board totals could not be loaded" }
+  }
+}
+
+export async function getClientTaskBoardColumn(input: {
+  clientId: string
+  status: string
+  scope?: ClientTaskArchiveScope
+  page?: number
+  search?: string
+}) {
+  try {
+    if (!isTaskWorkflowStage(input.status)) return { success: false as const, error: "Unsupported workflow stage" }
+    const status: TaskWorkflowStageId = input.status
+    const scope: ClientTaskArchiveScope = input.scope === "archived" ? "archived" : "active"
+    const page = Number.isInteger(input.page) ? Math.max(1, input.page || 1) : 1
+
+    const access = await resolveClientTaskAccess(input.clientId)
+    if (!("authorizedScope" in access)) return access
+
+    const searchFilter = clientTaskSearchFilter(input.search)
+    const columnScope: Prisma.TaskWhereInput = {
+      AND: [
+        access.authorizedScope,
+        clientTaskArchiveFilter(scope),
+        { status },
+        ...(searchFilter ? [searchFilter] : []),
+      ],
+    }
+
+    const [total, rows] = await prisma.$transaction([
+      prisma.task.count({ where: columnScope }),
+      prisma.task.findMany({
+        where: columnScope,
+        orderBy: [{ updated_at: "desc" }, { id: "asc" }],
+        skip: (page - 1) * CLIENT_TASK_BOARD_COLUMN_PAGE_SIZE,
+        take: CLIENT_TASK_BOARD_COLUMN_PAGE_SIZE,
+        select: {
+          ...TASK_CARD_SELECT,
+          task_links: {
+            where: { project: { client_id: access.client.id } },
+            select: {
+              project: { select: { id: true, name: true, color: true } },
+            },
+            take: 1,
+          },
+        },
+      }),
+    ])
+
+    return {
+      success: true as const,
+      data: {
+        status,
+        page,
+        pageSize: CLIENT_TASK_BOARD_COLUMN_PAGE_SIZE,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / CLIENT_TASK_BOARD_COLUMN_PAGE_SIZE)),
+        tasks: rows.map(({ task_links: taskLinks, ...task }) => ({
+          ...task,
+          client_project: task.project || taskLinks[0]?.project || null,
+        })),
+      },
+    }
+  } catch (error) {
+    console.error("Failed to get client task board column:", error)
+    return { success: false as const, error: "Client board tasks could not be loaded" }
   }
 }
 

@@ -5,19 +5,28 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { format, isPast, isToday } from "date-fns"
-import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd"
+import {
+  DragDropContext,
+  Draggable,
+  Droppable,
+  type DropResult,
+} from "@hello-pangea/dnd"
 import {
   Archive,
   ArrowUpCircle,
   Briefcase,
   Calendar,
   CheckCircle2,
+  Clock,
   ExternalLink,
   FolderKanban,
+  LayoutGrid,
+  LayoutList,
   Loader2,
   PencilLine,
   Plus,
   RotateCcw,
+  ShieldCheck,
   Trash2,
   UserPlus,
 } from "lucide-react"
@@ -26,6 +35,8 @@ import {
   createTask,
   deleteClient,
   deleteProject,
+  getClientTaskBoardColumn,
+  getClientTaskBoardSummary,
   getClientTaskPage,
   getProjectMemberManagement,
   setClientArchived,
@@ -36,6 +47,14 @@ import type { EditableClient } from "@/components/create-client-modal"
 import AddClientMemberModal, { type ClientMember } from "@/components/add-client-member-modal"
 import type { ProjectMemberManagementData } from "@/components/project-members-manager"
 import { keepDirectClientTasks } from "@/lib/client-hierarchy"
+import {
+  CLIENT_TASK_LAYOUT_STORAGE_KEY,
+  insertCreatedTaskIntoBoardColumn,
+  moveTaskBetweenBoardColumns,
+  reconcileTaskAcrossBoardColumns,
+  type ClientTaskBoardColumnState,
+  type ClientTaskLayout,
+} from "@/lib/client-task-board"
 import {
   deriveProjectCompletionStatus,
   TASK_WORKFLOW_STAGES,
@@ -143,6 +162,28 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
   const [savingClientId, setSavingClientId] = useState<string | null>(null)
   const [savingProjectId, setSavingProjectId] = useState<string | null>(null)
   const [convertingTaskId, setConvertingTaskId] = useState<string | null>(null)
+  const [clientTaskLayout, setClientTaskLayout] = useState<ClientTaskLayout>("table")
+  const [boardCounts, setBoardCounts] = useState<Record<string, number> | null>(null)
+  const [boardColumns, setBoardColumns] = useState<Record<string, ClientTaskBoardColumnState>>(() =>
+    Object.fromEntries(TASK_WORKFLOW_STAGES.map((stage) => [stage.id, {
+      tasks: [],
+      page: 1,
+      total: 0,
+      totalPages: 1,
+      loading: false,
+    } as ClientTaskBoardColumnState])))
+  const [boardSummaryLoading, setBoardSummaryLoading] = useState(false)
+  const [boardError, setBoardError] = useState("")
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(CLIENT_TASK_LAYOUT_STORAGE_KEY)
+    if (stored === "board" || stored === "table") setClientTaskLayout(stored)
+  }, [])
+
+  const handleClientTaskLayoutChange = (layout: ClientTaskLayout) => {
+    setClientTaskLayout(layout)
+    window.localStorage.setItem(CLIENT_TASK_LAYOUT_STORAGE_KEY, layout)
+  }
 
   useEffect(() => {
     if (!requestedClientId) return
@@ -233,6 +274,99 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
     }
   }, [activeClient?.id, clientTaskPage, clientTaskScope, debouncedClientTaskSearch])
 
+  const boardActive = clientTaskLayout === "board"
+
+  useEffect(() => {
+    if (!boardActive || !activeClient?.id) return
+
+    let cancelled = false
+    setBoardError("")
+    setBoardCounts(null)
+    setBoardSummaryLoading(true)
+    setBoardColumns(Object.fromEntries(TASK_WORKFLOW_STAGES.map((stage) => [stage.id, {
+      tasks: [],
+      page: 1,
+      total: 0,
+      totalPages: 1,
+      loading: true,
+    } as ClientTaskBoardColumnState])))
+
+    void getClientTaskBoardSummary({
+      clientId: activeClient.id,
+      scope: clientTaskScope,
+      search: debouncedClientTaskSearch,
+    }).then((result) => {
+      if (cancelled) return
+      if (!result.success) {
+        setBoardError(result.error || "Board totals could not be loaded")
+        return
+      }
+      setBoardCounts(result.data.counts)
+    }).finally(() => {
+      if (!cancelled) setBoardSummaryLoading(false)
+    })
+
+    for (const stage of TASK_WORKFLOW_STAGES) {
+      void getClientTaskBoardColumn({
+        clientId: activeClient.id,
+        status: stage.id,
+        scope: clientTaskScope,
+        page: 1,
+        search: debouncedClientTaskSearch,
+      }).then((result) => {
+        if (cancelled) return
+        setBoardColumns((current) => ({
+          ...current,
+          [stage.id]: result.success
+            ? {
+                tasks: result.data.tasks,
+                page: result.data.page,
+                total: result.data.total,
+                totalPages: result.data.totalPages,
+                loading: false,
+              }
+            : { ...current[stage.id], loading: false },
+        }))
+        if (!result.success && !cancelled) setBoardError(result.error || "Board tasks could not be loaded")
+      })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeClient?.id, boardActive, clientTaskScope, debouncedClientTaskSearch])
+
+  const handleLoadMoreBoardColumn = async (stageId: TaskWorkflowStageId) => {
+    if (!activeClient?.id) return
+    const column = boardColumns[stageId]
+    if (!column || column.loading || column.page >= column.totalPages) return
+
+    const nextPage = column.page + 1
+    setBoardColumns((current) => ({ ...current, [stageId]: { ...current[stageId], loading: true } }))
+    const result = await getClientTaskBoardColumn({
+      clientId: activeClient.id,
+      status: stageId,
+      scope: clientTaskScope,
+      page: nextPage,
+      search: debouncedClientTaskSearch,
+    })
+    setBoardColumns((current) => {
+      const existing = current[stageId]
+      if (!result.success) return { ...current, [stageId]: { ...existing, loading: false } }
+      const knownIds = new Set(existing.tasks.map((task: any) => task.id))
+      return {
+        ...current,
+        [stageId]: {
+          tasks: [...existing.tasks, ...result.data.tasks.filter((task: any) => !knownIds.has(task.id))],
+          page: result.data.page,
+          total: result.data.total,
+          totalPages: result.data.totalPages,
+          loading: false,
+        },
+      }
+    })
+  }
+
   useEffect(() => {
     const taskId = searchParams?.get("taskId")
     if (!taskId || selectedTask) return
@@ -277,6 +411,119 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
         : task),
     } : current)
     setSelectedTask((current: any) => current?.id === updatedTask.id ? { ...current, ...updatedTask } : current)
+    setBoardColumns((current) => {
+      const next = reconcileTaskAcrossBoardColumns(current, updatedTask)
+      return next || current
+    })
+    if (!activeClient?.id) return
+    void getClientTaskBoardSummary({
+      clientId: activeClient.id,
+      scope: clientTaskScope,
+      search: debouncedClientTaskSearch,
+    }).then((result) => {
+      if (result.success) setBoardCounts(result.data.counts)
+    }).catch(() => {})
+  }
+
+  const handleBoardDragEnd = async (dropResult: DropResult) => {
+    const { destination, source, draggableId } = dropResult
+    if (!destination) return
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return
+
+    const fromColumn = boardColumns[source.droppableId]
+    const task = fromColumn?.tasks.find((entry: any) => entry.id === draggableId)
+    if (!task) return
+
+    const transitionError = validateManualTaskTransition({
+      from: task.status,
+      to: destination.droppableId,
+      qualityRequired: Boolean(task.quality_required),
+      qualityState: task.quality_state || "not_required",
+    })
+    if (transitionError) {
+      setActionError(transitionError)
+      return
+    }
+
+    const optimistic = moveTaskBetweenBoardColumns(boardColumns, draggableId, source.droppableId, destination.droppableId)
+    if (!optimistic) return
+    setBoardColumns(optimistic.columns)
+    setActionError("")
+
+    const actionResult = await updateTask(task.id, { status: destination.droppableId as any })
+    if (!actionResult.success || !actionResult.task) {
+      setBoardColumns(boardColumns)
+      setActionError(actionResult.error || "The task could not be moved")
+      return
+    }
+    applyTaskUpdate(actionResult.task)
+  }
+
+  const startBoardQuickAdd = (stageId: TaskWorkflowStageId) => {
+    setActionError("")
+    setAddingStage(stageId)
+    setNewTaskTitle("")
+  }
+
+  const cancelBoardQuickAdd = () => {
+    setAddingStage(null)
+    setNewTaskTitle("")
+  }
+
+  const submitBoardQuickAdd = async (stageId: TaskWorkflowStageId) => {
+    if (!activeClient) return
+    if (clientTaskScope !== "active") {
+      setActionError("New tasks are created in Active tasks")
+      cancelBoardQuickAdd()
+      return
+    }
+    const stageDefinition = TASK_WORKFLOW_STAGES.find((entry) => entry.id === stageId)!
+    if (!stageDefinition.manualTransition) {
+      setActionError(`${stageDefinition.label} is controlled by the quality workflow`)
+      cancelBoardQuickAdd()
+      return
+    }
+    const title = newTaskTitle.trim()
+    if (!title) return
+
+    const result = await createTask({
+      title,
+      status: stageId,
+      client_id: activeClient.id,
+    })
+    if (!result.success || !result.task) {
+      setActionError(result.error || "The task could not be created")
+      return
+    }
+
+    const createdTask = { ...result.task, client_project: result.task.project || null }
+    setClients((previous) => reconcileClients(previous.map((client) => client.id === activeClient.id
+      ? { ...client, tasks: [createdTask, ...client.tasks] }
+      : client)))
+    setBoardColumns((current) => insertCreatedTaskIntoBoardColumn(current, createdTask) || current)
+    setBoardCounts((current) => current
+      ? { ...current, [stageId]: (current[stageId] ?? 0) + 1 }
+      : current)
+    setClientTaskData((current: any) => {
+      if (!current) return current
+      const matchesSearch = !debouncedClientTaskSearch
+        || createdTask.title.toLowerCase().includes(debouncedClientTaskSearch.toLowerCase())
+      return {
+        ...current,
+        counts: current.counts
+          ? { ...current.counts, active: (current.counts.active ?? 0) + 1 }
+          : current.counts,
+        total: matchesSearch ? current.total + 1 : current.total,
+        totalPages: matchesSearch
+          ? Math.max(1, Math.ceil((current.total + 1) / current.pageSize))
+          : current.totalPages,
+        tasks: matchesSearch && current.page === 1
+          ? [createdTask, ...current.tasks].slice(0, current.pageSize)
+          : current.tasks,
+      }
+    })
+    cancelBoardQuickAdd()
+    setActionNotice(`Task added to ${stageDefinition.label}`)
   }
 
   const handleDragEnd = async (dropResult: DropResult) => {
@@ -552,16 +799,184 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
                           </button>
                         ))}
                       </div>
-                      {clientTaskData ? (
+                      {clientTaskData && clientTaskLayout === "table" ? (
                         <span className="text-xs text-[#71717a]">
                           {clientTaskData.total === 0
                             ? "No matching tasks"
                             : `${(clientTaskData.page - 1) * clientTaskData.pageSize + 1}–${Math.min(clientTaskData.page * clientTaskData.pageSize, clientTaskData.total)} of ${clientTaskData.total}`}
                         </span>
                       ) : null}
+                      <div role="tablist" aria-label="Client task layout" className="flex rounded-lg border border-[#3f3f46] bg-[#131316] p-1">
+                        {(["table", "board"] as const).map((layout) => (
+                          <button
+                            key={layout}
+                            type="button"
+                            role="tab"
+                            aria-selected={clientTaskLayout === layout}
+                            onClick={() => handleClientTaskLayoutChange(layout)}
+                            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${clientTaskLayout === layout ? "bg-[#27272a] text-white" : "text-[#a1a1aa] hover:text-white"}`}
+                          >
+                            {layout === "table" ? <LayoutList className="h-3.5 w-3.5" /> : <LayoutGrid className="h-3.5 w-3.5" />}
+                            {layout === "table" ? "Table" : "Board"}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    {clientTasksLoading && !clientTaskData ? (
+                    {boardError ? (
+                      <p role="alert" className="m-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{boardError}</p>
+                    ) : null}
+
+                    {clientTaskLayout === "board" ? (
+                      <DragDropContext onDragEnd={handleBoardDragEnd}>
+                        <div className="flex min-w-max items-start gap-3 overflow-x-auto p-3 custom-scrollbar">
+                          {TASK_WORKFLOW_STAGES.map((stage) => {
+                            const column = boardColumns[stage.id]
+                            const total = boardCounts?.[stage.id] ?? column?.total ?? 0
+                            return (
+                              <div key={stage.id} className="flex max-h-[70vh] w-[280px] shrink-0 flex-col rounded-xl border border-[#3f3f46] bg-[#202023] sm:w-[300px]">
+                                <div className="border-b border-[#3f3f46] p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <h3 className="truncate text-xs font-bold uppercase tracking-wider text-[#f4f4f5]">{stage.label}</h3>
+                                      <span className="shrink-0 rounded-full bg-[#18181b] px-1.5 py-0.5 text-[10px] font-bold text-[#a1a1aa]" aria-label={`${total} tasks in ${stage.label}`}>
+                                        {boardSummaryLoading && boardCounts === null ? "…" : total}
+                                      </span>
+                                    </div>
+                                    {stage.manualTransition && clientTaskScope === "active" ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => startBoardQuickAdd(stage.id)}
+                                        aria-label={`Add task to ${stage.label}`}
+                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[#3f3f46] text-[#a1a1aa] transition-colors hover:border-[#0075de]/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
+                                      >
+                                        <Plus className="h-3.5 w-3.5" />
+                                      </button>
+                                    ) : !stage.manualTransition ? (
+                                      <span
+                                        aria-label={`Tasks cannot be added directly to ${stage.label}; it is controlled by the quality workflow`}
+                                        title={`${stage.label} is controlled by the quality workflow`}
+                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#71717a]"
+                                      >
+                                        <ShieldCheck className="h-3.5 w-3.5" />
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {addingStage === stage.id ? (
+                                    <form
+                                      onSubmit={(event) => {
+                                        event.preventDefault()
+                                        void submitBoardQuickAdd(stage.id)
+                                      }}
+                                      className="mt-2"
+                                    >
+                                      <input
+                                        autoFocus
+                                        value={newTaskTitle}
+                                        onChange={(event) => setNewTaskTitle(event.target.value)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Escape") cancelBoardQuickAdd()
+                                        }}
+                                        placeholder={`Add task to ${stage.label}…`}
+                                        aria-label={`New task title for ${stage.label}`}
+                                        className="w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-2.5 py-1.5 text-xs text-white outline-none placeholder:text-[#71717a] focus:border-[#0075de]"
+                                      />
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <button type="submit" disabled={!newTaskTitle.trim()} className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white disabled:opacity-40">Add</button>
+                                        <button type="button" onClick={cancelBoardQuickAdd} className="rounded-md px-2 py-1 text-xs font-medium text-[#a1a1aa] hover:text-white">Cancel</button>
+                                      </div>
+                                    </form>
+                                  ) : null}
+                                </div>
+                                <Droppable droppableId={stage.id} isDropDisabled={!stage.manualTransition}>
+                                  {(provided, snapshot) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.droppableProps}
+                                      className={`flex-1 space-y-2 overflow-y-auto p-2.5 custom-scrollbar transition-colors ${snapshot.isDraggingOver ? "bg-[#18181b]/60" : ""}`}
+                                    >
+                                      {(column?.tasks || []).map((task: any, index: number) => {
+                                        const stageDefinition = TASK_WORKFLOW_STAGES.find((entry) => entry.id === task.status)
+                                        return (
+                                          <Draggable key={task.id} draggableId={task.id} index={index}>
+                                            {(dragProvided, dragSnapshot) => (
+                                              <div
+                                                ref={dragProvided.innerRef}
+                                                {...dragProvided.draggableProps}
+                                                {...dragProvided.dragHandleProps}
+                                                onClick={() => setSelectedTask(task)}
+                                                onKeyDown={(event) => {
+                                                  if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault()
+                                                    setSelectedTask(task)
+                                                  }
+                                                }}
+                                                role="button"
+                                                tabIndex={0}
+                                                className={`cursor-pointer rounded-lg border border-[#3f3f46] bg-[#202023] p-2.5 shadow-sm transition-all hover:border-[#0075de]/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de] ${dragSnapshot.isDragging ? "z-50 rotate-1 border-[#0075de]/50 bg-[#27272a] shadow-xl" : ""}`}
+                                              >
+                                                <div className="flex items-start justify-between gap-2">
+                                                  <h4 className={`text-xs font-semibold leading-snug ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5]"}`}>{task.title}</h4>
+                                                  {task.quality_required && task.status !== "complete" ? (
+                                                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" aria-label="Quality required" />
+                                                  ) : null}
+                                                </div>
+                                                <div className="mt-2 flex items-center gap-1.5">
+                                                  <span className="truncate rounded bg-[#18181b] px-1.5 py-0.5 text-[10px] font-semibold text-[#a1a1aa]">
+                                                    {task.client_project?.name || "Direct client task"}
+                                                  </span>
+                                                  {stageDefinition && stageDefinition.textAccent ? (
+                                                    <span className={`shrink-0 text-[10px] font-semibold ${stageDefinition.textAccent}`}>{stageDefinition.label}</span>
+                                                  ) : null}
+                                                </div>
+                                                <div className="mt-2 flex items-center justify-between gap-2">
+                                                  <div className="flex items-center gap-1.5">
+                                                    {task.due_date ? (
+                                                      <span className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) && task.status !== "complete" ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-[#3f3f46] text-[#a1a1aa]"}`}>
+                                                        <Clock className="h-3 w-3" />
+                                                        {format(new Date(task.due_date), "MMM d")}
+                                                      </span>
+                                                    ) : null}
+                                                    {task.priority ? (
+                                                      <span className={`h-1.5 w-1.5 rounded-full ${task.priority === "high" ? "bg-rose-500" : task.priority === "medium" ? "bg-amber-500" : "bg-blue-500"}`} aria-label={`Priority: ${task.priority}`} />
+                                                    ) : null}
+                                                  </div>
+                                                  <span className="max-w-[7rem] truncate text-[10px] font-medium text-[#a1a1aa]">
+                                                    {task.assignee?.full_name || "Unassigned"}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </Draggable>
+                                        )
+                                      })}
+                                      {provided.placeholder}
+                                      {column?.loading ? (
+                                        <div className="flex items-center justify-center gap-2 py-4 text-xs text-[#a1a1aa]" aria-live="polite">
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+                                        </div>
+                                      ) : null}
+                                      {!column?.loading && column && column.tasks.length === 0 && column.page >= column.totalPages ? (
+                                        <p className="py-6 text-center text-[10px] text-[#71717a]">No tasks here</p>
+                                      ) : null}
+                                      {column && !column.loading && column.page < column.totalPages ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleLoadMoreBoardColumn(stage.id)}
+                                          className="w-full rounded-lg border border-dashed border-[#3f3f46] py-2 text-xs font-semibold text-[#a1a1aa] transition-colors hover:border-[#0075de]/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
+                                        >
+                                          Load more{total > column.tasks.length ? ` (${total - column.tasks.length} remaining)` : ""}
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  )}
+                                </Droppable>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </DragDropContext>
+                    ) : clientTasksLoading && !clientTaskData ? (
                       <div className="flex min-h-40 items-center justify-center gap-2 px-4 py-10 text-sm text-[#a1a1aa]" aria-live="polite">
                         <Loader2 className="h-4 w-4 animate-spin" /> Loading client tasks…
                       </div>

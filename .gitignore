@@ -43,6 +43,7 @@ tsc-errors.txt
 *.db-shm
 *.db-wal
 *.dump
+*.jsonl
 /prisma/backups/
 
 # env files (can opt-in for committing if needed)
