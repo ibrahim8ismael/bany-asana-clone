@@ -669,6 +669,16 @@ export async function importTasksFromCsv(options: {
       projectQualityPolicy = project.quality_policy
     } else if (options.target.type === "new_project") {
       workspaceId = options.target.workspaceId
+      const ownerMembership = await tx.workspaceMember.findUnique({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: workspaceId,
+            user_id: options.userId,
+          },
+        },
+        select: { id: true },
+      })
+      if (!ownerMembership) throw new Error("The project owner must belong to the target workspace")
       const project = await tx.project.create({
         data: {
           name: options.target.projectName,
@@ -687,7 +697,7 @@ export async function importTasksFromCsv(options: {
         data: {
           project_id: project.id,
           user_id: options.userId,
-          role: "owner",
+          role: "admin",
         },
       })
 

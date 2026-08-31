@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import {
   AlertTriangle,
@@ -154,6 +155,7 @@ export default function TaskQualityPanel({
   onTaskUpdated: (updates: Partial<QualityTaskSummary> & Record<string, unknown>) => void
   onActivityRefresh: () => Promise<void>
 }) {
+  const router = useRouter()
   const [data, setData] = useState<QualityData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -166,6 +168,8 @@ export default function TaskQualityPanel({
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setError("")
     void getTaskQuality(task.id).then((result) => {
       if (cancelled) return
       const actionResult = result as QualityActionResult
@@ -197,6 +201,7 @@ export default function TaskQualityPanel({
       if (result.taskUpdate) onTaskUpdated(result.taskUpdate)
       setError("")
       await onActivityRefresh()
+      router.refresh()
       return true
     }
     setError(result.error || "The quality action could not be completed")

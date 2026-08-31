@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client"
 import { buildReportingMetrics, resolveReportingFilters, type ReportingFilters, type ReportingMetrics, type ReportingParamsLike, type ReportingTaskInput } from "@/lib/reporting-metrics"
-import { getActiveWorkspaceForUser, projectAccessWhere, taskAccessWhere, workspaceAccessWhere } from "@/lib/permissions"
+import { getActiveWorkspaceForUser, isSuperAdminUser, projectAccessWhere, taskAccessWhere, workspaceAccessWhere } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 
 export interface ReportingFilterOption {
@@ -92,7 +92,7 @@ const taskSelect = {
   },
 } satisfies Prisma.TaskSelect
 
-function taskWhereForReport(userId: string, filters: ReportingFilters, isManager: boolean, workspaceId: string) {
+function taskWhereForReport(userId: string, filters: ReportingFilters, isManager: boolean, workspaceId: string, isSuperAdmin = false) {
   const filtersWhere: Prisma.TaskWhereInput = {
     archived: false,
     workspace_id: workspaceId,
@@ -120,7 +120,7 @@ function taskWhereForReport(userId: string, filters: ReportingFilters, isManager
   }
 
   return {
-    AND: [taskAccessWhere(userId, "view"), filtersWhere],
+    AND: [taskAccessWhere(userId, "view", isSuperAdmin), filtersWhere],
   } satisfies Prisma.TaskWhereInput
 }
 
@@ -134,14 +134,14 @@ function goalWhereForReport(userId: string, filters: ReportingFilters, workspace
   return where
 }
 
-function timeEntryWhereForReport(userId: string, filters: ReportingFilters, workspaceId: string) {
+function timeEntryWhereForReport(userId: string, filters: ReportingFilters, workspaceId: string, isSuperAdmin = false) {
   const where: Prisma.TimeEntryWhereInput = {
     date: {
       gte: filters.start,
       lte: filters.end,
     },
     task: {
-      AND: [taskAccessWhere(userId, "view"), { workspace_id: workspaceId }],
+      AND: [taskAccessWhere(userId, "view", isSuperAdmin), { workspace_id: workspaceId }],
     },
   }
 
@@ -181,7 +181,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
   }) : null
   const workspace = activeWorkspace ? { id: activeWorkspace.id, name: activeWorkspace.name } : null
   const workspaceId = workspace?.id || null
-  const workspaceRole = activeWorkspace?.owner_id === userId ? "owner" : membership?.role || "guest"
+  const workspaceRole = activeWorkspace?.owner_id === userId ? "owner" : membership?.role || "member"
   const isManager = user.is_super_admin || workspaceRole === "owner" || workspaceRole === "admin"
   const filters: ReportingFilters = requestedFilters.scope === "team" && !isManager
     ? { ...requestedFilters, scope: "personal" }
@@ -189,7 +189,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
 
   const projectOptionWhere: Prisma.ProjectWhereInput = {
     AND: [
-      projectAccessWhere(userId, "view"),
+      projectAccessWhere(userId, "view", user.is_super_admin),
       { archived: false },
       {
         OR: [
@@ -203,7 +203,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
 
   const [tasks, goals, timeEntries, clients, projects, teamMembers, pendingRequests] = await Promise.all([
     workspaceId ? prisma.task.findMany({
-      where: taskWhereForReport(userId, filters, isManager, workspaceId),
+      where: taskWhereForReport(userId, filters, isManager, workspaceId, user.is_super_admin),
       select: taskSelect,
       orderBy: [{ due_date: "asc" }, { updated_at: "desc" }],
     }) as Promise<ReportingTaskInput[]> : Promise.resolve([] as ReportingTaskInput[]),
@@ -221,7 +221,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
       take: 12,
     }) : Promise.resolve([]),
     workspaceId ? prisma.timeEntry.findMany({
-      where: timeEntryWhereForReport(userId, filters, workspaceId),
+      where: timeEntryWhereForReport(userId, filters, workspaceId, user.is_super_admin),
       select: {
         minutes: true,
         date: true,
@@ -232,7 +232,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
           where: {
             workspace_id: workspaceId,
             archived: false,
-            workspace: workspaceAccessWhere(userId, "view"),
+            workspace: workspaceAccessWhere(userId, "view", user.is_super_admin),
           },
           select: {
             id: true,
@@ -261,7 +261,7 @@ export async function getReportingData(userId: string, params: ReportingParamsLi
       ? prisma.workspaceMember.findMany({
           where: {
             workspace_id: workspaceId,
-            role: { not: "guest" },
+            role: { in: ["owner", "admin", "member"] },
           },
           select: {
             role: true,

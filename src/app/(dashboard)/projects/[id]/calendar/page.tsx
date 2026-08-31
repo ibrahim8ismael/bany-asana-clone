@@ -20,7 +20,7 @@ import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import ProjectAccessDenied from "@/components/project-access-denied"
 import ProjectViewTabs from "@/components/project-view-tabs"
-import { projectAccessWhere } from "@/lib/permissions"
+import { isSuperAdminUser, projectAccessWhere } from "@/lib/permissions"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
 import ShareButton from "@/components/share-button"
 
@@ -47,10 +47,11 @@ export default async function CalendarPage({
   const userId = (session.user as { id?: string } | undefined)?.id
   if (!userId) return notFound()
 
+  const isSuperAdmin = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
     where: id !== "demo"
-      ? { id, ...projectAccessWhere(userId, "view") }
-      : { ...projectAccessWhere(userId, "view") },
+      ? { id, ...projectAccessWhere(userId, "view", isSuperAdmin) }
+      : { ...projectAccessWhere(userId, "view", isSuperAdmin) },
     include: {
       tasks: {
         where: { archived: false, due_date: { not: null } },

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { authOptions } from "@/lib/auth"
 import { isSuperAdminUser } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
+import { isWorkspaceAdmin, isWorkspaceRole } from "@/lib/project-membership"
 
 async function getSessionUserId() {
   const session = await getServerSession(authOptions)
@@ -19,13 +20,6 @@ async function requireSuperAdmin() {
   if (!allowed) throw new Error("Super admin access required")
 
   return userId
-}
-
-const WORKSPACE_MEMBER_ROLES = ["admin", "user"] as const
-type WorkspaceMemberRole = (typeof WORKSPACE_MEMBER_ROLES)[number]
-
-function isWorkspaceMemberRole(value: unknown): value is WorkspaceMemberRole {
-  return typeof value === "string" && WORKSPACE_MEMBER_ROLES.includes(value as WorkspaceMemberRole)
 }
 
 async function getWorkspaceAdminContext(workspaceId: unknown) {
@@ -52,7 +46,7 @@ async function getWorkspaceAdminContext(workspaceId: unknown) {
 
   if (!workspace) return { error: "Workspace not found" } as const
   const role = workspace.members[0]?.role
-  if (!superAdmin && workspace.owner_id !== userId && role !== "admin") {
+  if (!superAdmin && workspace.owner_id !== userId && !isWorkspaceAdmin(role)) {
     return { error: "Workspace admin access required" } as const
   }
 
@@ -174,7 +168,7 @@ export async function reviewSuperAdminRequest(data: { requestId: string; decisio
           select: { id: true, role: true },
         })
 
-        if (membership && membership.role !== "admin") {
+        if (membership && !isWorkspaceAdmin(membership.role)) {
           await tx.workspaceMember.update({
             where: { id: membership.id },
             data: { role: "admin" },
@@ -218,12 +212,10 @@ export async function revokeSuperAdmin(data: { userId: string }) {
 }
 
 export async function updateWorkspaceMemberRole(data: { workspaceId: string; userId: string; role: string }) {
-  if (!isWorkspaceMemberRole(data?.role)) return { error: "Invalid workspace role" }
+  if (!isWorkspaceRole(data?.role) || data.role === "owner") return { error: "Workspace role must be admin or member" }
   const authorization = await getWorkspaceAdminContext(data?.workspaceId)
   if ("error" in authorization) return authorization
-  const { workspace, superAdmin } = authorization
-
-  if (!superAdmin && workspace.owner_id === data.userId) return { error: "Workspace owner role cannot be changed" }
+  const { workspace } = authorization
 
   const membership = await prisma.workspaceMember.findFirst({
     where: { workspace_id: data.workspaceId, user_id: data.userId },
@@ -231,6 +223,9 @@ export async function updateWorkspaceMemberRole(data: { workspaceId: string; use
   })
 
   if (!membership) return { error: "Membership not found" }
+  if (workspace.owner_id === data.userId || membership.role === "owner") {
+    return { error: "Workspace owner role cannot be changed" }
+  }
 
   await prisma.workspaceMember.update({
     where: { id: membership.id },
@@ -248,9 +243,7 @@ export async function updateWorkspaceMemberRole(data: { workspaceId: string; use
 export async function removeWorkspaceMember(data: { workspaceId: string; userId: string }) {
   const authorization = await getWorkspaceAdminContext(data?.workspaceId)
   if ("error" in authorization) return authorization
-  const { workspace, superAdmin } = authorization
-
-  if (!superAdmin && workspace.owner_id === data.userId) return { error: "Workspace owner cannot be removed" }
+  const { workspace } = authorization
 
   const membership = await prisma.workspaceMember.findFirst({
     where: { workspace_id: data.workspaceId, user_id: data.userId },
@@ -258,37 +251,33 @@ export async function removeWorkspaceMember(data: { workspaceId: string; userId:
   })
 
   if (!membership) return { error: "Membership not found" }
+  if (workspace.owner_id === data.userId || membership.role === "owner") {
+    return { error: "Workspace owner cannot be removed" }
+  }
+
+  const ownedProject = await prisma.project.findFirst({
+    where: { workspace_id: data.workspaceId, owner_id: data.userId },
+    select: { name: true },
+  })
+  if (ownedProject) {
+    return { error: `Transfer ownership of ${ownedProject.name} before removing this workspace member` }
+  }
+
+  const soleAdminProject = await prisma.project.findFirst({
+    where: {
+      workspace_id: data.workspaceId,
+      members: {
+        some: { user_id: data.userId, role: "admin" },
+        none: { user_id: { not: data.userId }, role: "admin" },
+      },
+    },
+    select: { name: true },
+  })
+  if (soleAdminProject) {
+    return { error: `Add another admin to ${soleAdminProject.name} before removing this workspace member` }
+  }
 
   await prisma.$transaction(async (tx) => {
-    const ownedProjects = await tx.project.findMany({
-      where: { workspace_id: data.workspaceId, owner_id: data.userId },
-      select: { id: true },
-    })
-
-    if (ownedProjects.length > 0) {
-      await tx.project.updateMany({
-        where: { id: { in: ownedProjects.map((project) => project.id) } },
-        data: { owner_id: workspace.owner_id },
-      })
-
-      for (const project of ownedProjects) {
-        await tx.projectMember.upsert({
-          where: {
-            project_id_user_id: {
-              project_id: project.id,
-              user_id: workspace.owner_id,
-            },
-          },
-          create: {
-            project_id: project.id,
-            user_id: workspace.owner_id,
-            role: "admin",
-          },
-          update: { role: "admin" },
-        })
-      }
-    }
-
     await tx.workspaceMember.delete({ where: { id: membership.id } })
 
     const teams = await tx.team.findMany({
@@ -331,7 +320,7 @@ export async function addWorkspaceMember(data: {
   password?: string
 }) {
   try {
-    if (!isWorkspaceMemberRole(data?.role)) return { error: "Invalid workspace role" }
+    if (!isWorkspaceRole(data?.role) || data.role === "owner") return { error: "Workspace role must be admin or member" }
     const authorization = await getWorkspaceAdminContext(data?.workspaceId)
     if ("error" in authorization) return authorization
 

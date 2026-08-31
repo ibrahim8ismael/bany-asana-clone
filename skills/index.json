@@ -1,13 +1,49 @@
 {
-  "generatedAt": "2026-08-03T12:23:02.512Z",
+  "generatedAt": "2026-08-25T12:47:18.557Z",
   "version": 1,
-  "skillCount": 0,
+  "skillCount": 2,
   "referenceCount": 0,
-  "availableCommands": [],
+  "availableCommands": [
+    "/frontend-design",
+    "/teach-impeccable"
+  ],
   "environment": {
     "noticeFilePresent": true,
     "designContextFilePresent": true
   },
-  "skills": [],
+  "skills": [
+    {
+      "name": "frontend-design",
+      "file": "frontend-design.md",
+      "description": "Design or refine TaskFlow frontend components and flows with production-grade interaction, hierarchy, accessibility, and visual consistency while avoiding generic AI aesthetics.",
+      "userInvocable": true,
+      "argumentHint": "[page, component, or flow]",
+      "license": "Apache 2.0. Based on Anthropic's frontend-design skill. See NOTICE.md for attribution.",
+      "dependencies": {
+        "skills": [
+          "teach-impeccable"
+        ],
+        "references": [],
+        "files": [
+          ".impeccable.md"
+        ]
+      }
+    },
+    {
+      "name": "teach-impeccable",
+      "file": "teach-impeccable.md",
+      "description": "Gather and persist the audience, use cases, tone, and constraints required by repository design skills when that context is missing.",
+      "userInvocable": true,
+      "argumentHint": "[product or feature]",
+      "license": null,
+      "dependencies": {
+        "skills": [],
+        "references": [],
+        "files": [
+          ".impeccable.md"
+        ]
+      }
+    }
+  ],
   "references": []
 }

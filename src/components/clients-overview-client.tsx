@@ -5,18 +5,28 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { format, isPast, isToday } from "date-fns"
-import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd"
+import {
+  DragDropContext,
+  Draggable,
+  Droppable,
+  type DropResult,
+} from "@hello-pangea/dnd"
 import {
   Archive,
   ArrowUpCircle,
   Briefcase,
   Calendar,
   CheckCircle2,
+  Clock,
   ExternalLink,
   FolderKanban,
+  LayoutGrid,
+  LayoutList,
+  Loader2,
   PencilLine,
   Plus,
   RotateCcw,
+  ShieldCheck,
   Trash2,
   UserPlus,
 } from "lucide-react"
@@ -25,13 +35,26 @@ import {
   createTask,
   deleteClient,
   deleteProject,
+  getClientTaskBoardColumn,
+  getClientTaskBoardSummary,
+  getClientTaskPage,
+  getProjectMemberManagement,
   setClientArchived,
   updateProject,
   updateTask,
 } from "@/actions/server-actions"
 import type { EditableClient } from "@/components/create-client-modal"
 import AddClientMemberModal, { type ClientMember } from "@/components/add-client-member-modal"
+import type { ProjectMemberManagementData } from "@/components/project-members-manager"
 import { keepDirectClientTasks } from "@/lib/client-hierarchy"
+import {
+  CLIENT_TASK_LAYOUT_STORAGE_KEY,
+  insertCreatedTaskIntoBoardColumn,
+  moveTaskBetweenBoardColumns,
+  reconcileTaskAcrossBoardColumns,
+  type ClientTaskBoardColumnState,
+  type ClientTaskLayout,
+} from "@/lib/client-task-board"
 import {
   deriveProjectCompletionStatus,
   TASK_WORKFLOW_STAGES,
@@ -41,10 +64,12 @@ import {
 
 const CreateClientModal = dynamic(() => import("@/components/create-client-modal"), { ssr: false })
 const CreateProjectModal = dynamic(() => import("@/components/create-project-modal"), { ssr: false })
+const ProjectMembersManager = dynamic(() => import("@/components/project-members-manager"), { ssr: false })
 const TaskDrawer = dynamic(() => import("@/components/task-drawer"), { ssr: false })
 
 type ClientScope = "active" | "archived"
 type WorkScope = "project" | "direct"
+type ClientTaskScope = "active" | "archived"
 
 function isTaskOverdue(task: any) {
   return Boolean(task.due_date)
@@ -114,6 +139,13 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
   const [workScope, setWorkScope] = useState<WorkScope>("project")
   const [selectedTask, setSelectedTask] = useState<any>(null)
   const [search, setSearch] = useState("")
+  const [clientTaskScope, setClientTaskScope] = useState<ClientTaskScope>("active")
+  const [clientTaskSearch, setClientTaskSearch] = useState("")
+  const [debouncedClientTaskSearch, setDebouncedClientTaskSearch] = useState("")
+  const [clientTaskPage, setClientTaskPage] = useState(1)
+  const [clientTaskData, setClientTaskData] = useState<any | null>(null)
+  const [clientTasksLoading, setClientTasksLoading] = useState(false)
+  const [clientTasksError, setClientTasksError] = useState("")
   const [addingStage, setAddingStage] = useState<TaskWorkflowStageId | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState("")
   const [actionError, setActionError] = useState("")
@@ -130,6 +162,39 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
   const [savingClientId, setSavingClientId] = useState<string | null>(null)
   const [savingProjectId, setSavingProjectId] = useState<string | null>(null)
   const [convertingTaskId, setConvertingTaskId] = useState<string | null>(null)
+  const [clientTaskLayout, setClientTaskLayout] = useState<ClientTaskLayout>("table")
+  const [boardCounts, setBoardCounts] = useState<Record<string, number> | null>(null)
+  const [boardColumns, setBoardColumns] = useState<Record<string, ClientTaskBoardColumnState>>(() =>
+    Object.fromEntries(TASK_WORKFLOW_STAGES.map((stage) => [stage.id, {
+      tasks: [],
+      page: 1,
+      total: 0,
+      totalPages: 1,
+      loading: false,
+    } as ClientTaskBoardColumnState])))
+  const [boardSummaryLoading, setBoardSummaryLoading] = useState(false)
+  const [boardError, setBoardError] = useState("")
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(CLIENT_TASK_LAYOUT_STORAGE_KEY)
+    if (stored === "board" || stored === "table") setClientTaskLayout(stored)
+  }, [])
+
+  const handleClientTaskLayoutChange = (layout: ClientTaskLayout) => {
+    setClientTaskLayout(layout)
+    window.localStorage.setItem(CLIENT_TASK_LAYOUT_STORAGE_KEY, layout)
+  }
+
+  useEffect(() => {
+    if (!requestedClientId) return
+    const requestedClient = clients.find((client) => client.id === requestedClientId)
+    if (!requestedClient) return
+
+    setSelectedClientId(requestedClient.id)
+    setClientScope(requestedClient.archived ? "archived" : "active")
+    setSelectedProjectId(null)
+    setWorkScope(requestedClient.projects.length > 0 ? "project" : "direct")
+  }, [clients, requestedClientId])
 
   const visibleClients = useMemo(() => clients.filter((client) =>
     clientScope === "archived" ? Boolean(client.archived) : !client.archived
@@ -156,6 +221,153 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
   }, [activeClient, selectedProjectId])
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(
+      () => setDebouncedClientTaskSearch(clientTaskSearch.trim()),
+      250,
+    )
+    return () => window.clearTimeout(timeoutId)
+  }, [clientTaskSearch])
+
+  useEffect(() => {
+    setClientTaskScope("active")
+    setClientTaskSearch("")
+    setDebouncedClientTaskSearch("")
+    setClientTaskPage(1)
+    setClientTaskData(null)
+    setClientTasksError("")
+  }, [activeClient?.id])
+
+  useEffect(() => {
+    if (!activeClient?.id) return
+
+    let cancelled = false
+    setClientTasksLoading(true)
+    setClientTasksError("")
+
+    void getClientTaskPage({
+      clientId: activeClient.id,
+      scope: clientTaskScope,
+      page: clientTaskPage,
+      search: debouncedClientTaskSearch,
+    }).then((result) => {
+      if (cancelled) return
+      if (!result.success) {
+        setClientTaskData(null)
+        setClientTasksError(result.error || "Client tasks could not be loaded")
+        return
+      }
+      setClientTaskData(result.data)
+      if (clientTaskPage > result.data.totalPages) {
+        setClientTaskPage(result.data.totalPages)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setClientTaskData(null)
+        setClientTasksError("Client tasks could not be loaded")
+      }
+    }).finally(() => {
+      if (!cancelled) setClientTasksLoading(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeClient?.id, clientTaskPage, clientTaskScope, debouncedClientTaskSearch])
+
+  const boardActive = clientTaskLayout === "board"
+
+  useEffect(() => {
+    if (!boardActive || !activeClient?.id) return
+
+    let cancelled = false
+    setBoardError("")
+    setBoardCounts(null)
+    setBoardSummaryLoading(true)
+    setBoardColumns(Object.fromEntries(TASK_WORKFLOW_STAGES.map((stage) => [stage.id, {
+      tasks: [],
+      page: 1,
+      total: 0,
+      totalPages: 1,
+      loading: true,
+    } as ClientTaskBoardColumnState])))
+
+    void getClientTaskBoardSummary({
+      clientId: activeClient.id,
+      scope: clientTaskScope,
+      search: debouncedClientTaskSearch,
+    }).then((result) => {
+      if (cancelled) return
+      if (!result.success) {
+        setBoardError(result.error || "Board totals could not be loaded")
+        return
+      }
+      setBoardCounts(result.data.counts)
+    }).finally(() => {
+      if (!cancelled) setBoardSummaryLoading(false)
+    })
+
+    for (const stage of TASK_WORKFLOW_STAGES) {
+      void getClientTaskBoardColumn({
+        clientId: activeClient.id,
+        status: stage.id,
+        scope: clientTaskScope,
+        page: 1,
+        search: debouncedClientTaskSearch,
+      }).then((result) => {
+        if (cancelled) return
+        setBoardColumns((current) => ({
+          ...current,
+          [stage.id]: result.success
+            ? {
+                tasks: result.data.tasks,
+                page: result.data.page,
+                total: result.data.total,
+                totalPages: result.data.totalPages,
+                loading: false,
+              }
+            : { ...current[stage.id], loading: false },
+        }))
+        if (!result.success && !cancelled) setBoardError(result.error || "Board tasks could not be loaded")
+      })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeClient?.id, boardActive, clientTaskScope, debouncedClientTaskSearch])
+
+  const handleLoadMoreBoardColumn = async (stageId: TaskWorkflowStageId) => {
+    if (!activeClient?.id) return
+    const column = boardColumns[stageId]
+    if (!column || column.loading || column.page >= column.totalPages) return
+
+    const nextPage = column.page + 1
+    setBoardColumns((current) => ({ ...current, [stageId]: { ...current[stageId], loading: true } }))
+    const result = await getClientTaskBoardColumn({
+      clientId: activeClient.id,
+      status: stageId,
+      scope: clientTaskScope,
+      page: nextPage,
+      search: debouncedClientTaskSearch,
+    })
+    setBoardColumns((current) => {
+      const existing = current[stageId]
+      if (!result.success) return { ...current, [stageId]: { ...existing, loading: false } }
+      const knownIds = new Set(existing.tasks.map((task: any) => task.id))
+      return {
+        ...current,
+        [stageId]: {
+          tasks: [...existing.tasks, ...result.data.tasks.filter((task: any) => !knownIds.has(task.id))],
+          page: result.data.page,
+          total: result.data.total,
+          totalPages: result.data.totalPages,
+          loading: false,
+        },
+      }
+    })
+  }
+
+  useEffect(() => {
     const taskId = searchParams?.get("taskId")
     if (!taskId || selectedTask) return
     const task = findTask(clients, taskId)
@@ -164,11 +376,9 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
     return () => window.clearTimeout(timeoutId)
   }, [clients, searchParams, selectedTask])
 
-  const allClientTasks = useMemo(() => activeClient
-    ? [...activeClient.tasks, ...activeClient.projects.flatMap((project: any) => project.tasks)]
-    : [], [activeClient])
-  const completedCount = countCompletedTasks(allClientTasks)
-  const clientProgress = allClientTasks.length > 0 ? Math.round((completedCount / allClientTasks.length) * 100) : 0
+  const clientTaskTotal = clientTaskData
+    ? clientTaskData.counts.active + clientTaskData.counts.archived
+    : null
 
   const scopedTasks = useMemo(() => {
     const source = workScope === "project" ? selectedProject?.tasks || [] : activeClient?.tasks || []
@@ -194,7 +404,126 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
         tasks: project.tasks.map((task: any) => task.id === updatedTask.id ? { ...task, ...updatedTask } : task),
       })),
     }))))
+    setClientTaskData((current: any) => current ? {
+      ...current,
+      tasks: current.tasks.map((task: any) => task.id === updatedTask.id
+        ? { ...task, ...updatedTask, client_project: updatedTask.project || task.client_project }
+        : task),
+    } : current)
     setSelectedTask((current: any) => current?.id === updatedTask.id ? { ...current, ...updatedTask } : current)
+    setBoardColumns((current) => {
+      const next = reconcileTaskAcrossBoardColumns(current, updatedTask)
+      return next || current
+    })
+    if (!activeClient?.id) return
+    void getClientTaskBoardSummary({
+      clientId: activeClient.id,
+      scope: clientTaskScope,
+      search: debouncedClientTaskSearch,
+    }).then((result) => {
+      if (result.success) setBoardCounts(result.data.counts)
+    }).catch(() => {})
+  }
+
+  const handleBoardDragEnd = async (dropResult: DropResult) => {
+    const { destination, source, draggableId } = dropResult
+    if (!destination) return
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return
+
+    const fromColumn = boardColumns[source.droppableId]
+    const task = fromColumn?.tasks.find((entry: any) => entry.id === draggableId)
+    if (!task) return
+
+    const transitionError = validateManualTaskTransition({
+      from: task.status,
+      to: destination.droppableId,
+      qualityRequired: Boolean(task.quality_required),
+      qualityState: task.quality_state || "not_required",
+    })
+    if (transitionError) {
+      setActionError(transitionError)
+      return
+    }
+
+    const optimistic = moveTaskBetweenBoardColumns(boardColumns, draggableId, source.droppableId, destination.droppableId)
+    if (!optimistic) return
+    setBoardColumns(optimistic.columns)
+    setActionError("")
+
+    const actionResult = await updateTask(task.id, { status: destination.droppableId as any })
+    if (!actionResult.success || !actionResult.task) {
+      setBoardColumns(boardColumns)
+      setActionError(actionResult.error || "The task could not be moved")
+      return
+    }
+    applyTaskUpdate(actionResult.task)
+  }
+
+  const startBoardQuickAdd = (stageId: TaskWorkflowStageId) => {
+    setActionError("")
+    setAddingStage(stageId)
+    setNewTaskTitle("")
+  }
+
+  const cancelBoardQuickAdd = () => {
+    setAddingStage(null)
+    setNewTaskTitle("")
+  }
+
+  const submitBoardQuickAdd = async (stageId: TaskWorkflowStageId) => {
+    if (!activeClient) return
+    if (clientTaskScope !== "active") {
+      setActionError("New tasks are created in Active tasks")
+      cancelBoardQuickAdd()
+      return
+    }
+    const stageDefinition = TASK_WORKFLOW_STAGES.find((entry) => entry.id === stageId)!
+    if (!stageDefinition.manualTransition) {
+      setActionError(`${stageDefinition.label} is controlled by the quality workflow`)
+      cancelBoardQuickAdd()
+      return
+    }
+    const title = newTaskTitle.trim()
+    if (!title) return
+
+    const result = await createTask({
+      title,
+      status: stageId,
+      client_id: activeClient.id,
+    })
+    if (!result.success || !result.task) {
+      setActionError(result.error || "The task could not be created")
+      return
+    }
+
+    const createdTask = { ...result.task, client_project: result.task.project || null }
+    setClients((previous) => reconcileClients(previous.map((client) => client.id === activeClient.id
+      ? { ...client, tasks: [createdTask, ...client.tasks] }
+      : client)))
+    setBoardColumns((current) => insertCreatedTaskIntoBoardColumn(current, createdTask) || current)
+    setBoardCounts((current) => current
+      ? { ...current, [stageId]: (current[stageId] ?? 0) + 1 }
+      : current)
+    setClientTaskData((current: any) => {
+      if (!current) return current
+      const matchesSearch = !debouncedClientTaskSearch
+        || createdTask.title.toLowerCase().includes(debouncedClientTaskSearch.toLowerCase())
+      return {
+        ...current,
+        counts: current.counts
+          ? { ...current.counts, active: (current.counts.active ?? 0) + 1 }
+          : current.counts,
+        total: matchesSearch ? current.total + 1 : current.total,
+        totalPages: matchesSearch
+          ? Math.max(1, Math.ceil((current.total + 1) / current.pageSize))
+          : current.totalPages,
+        tasks: matchesSearch && current.page === 1
+          ? [createdTask, ...current.tasks].slice(0, current.pageSize)
+          : current.tasks,
+      }
+    })
+    cancelBoardQuickAdd()
+    setActionNotice(`Task added to ${stageDefinition.label}`)
   }
 
   const handleDragEnd = async (dropResult: DropResult) => {
@@ -404,7 +733,9 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3f3f46] bg-[#202023] px-4 py-4 sm:px-6">
               <div>
                 <h1 className="text-lg font-semibold text-white">{activeClient.name}</h1>
-                <p className="mt-0.5 text-xs text-[#a1a1aa]">{activeClient.projects.length} projects · {activeClient.tasks.length} direct tasks · {clientProgress}% complete</p>
+                <p className="mt-0.5 text-xs text-[#a1a1aa]">
+                  {activeClient.projects.length} projects · {clientTaskTotal === null ? "Loading task totals…" : `${clientTaskTotal} tasks`}
+                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button onClick={() => setIsMemberModalOpen(true)} className="inline-flex items-center gap-1.5 rounded-md border border-[#3f3f46] px-3 py-1.5 text-xs font-semibold text-white"><UserPlus className="h-3.5 w-3.5" /> People</button>
@@ -524,6 +855,7 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
 }
 
 function EditProjectModal({ project, onCancel, onSaved }: { project: any | null; onCancel: () => void; onSaved: (project: any) => void }) {
+  const projectId = project?.id as string | undefined
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [deadline, setDeadline] = useState("")
@@ -531,8 +863,16 @@ function EditProjectModal({ project, onCancel, onSaved }: { project: any | null;
   const [color, setColor] = useState("#6366f1")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [activeTab, setActiveTab] = useState<"settings" | "members">("settings")
+  const [memberManagement, setMemberManagement] = useState<ProjectMemberManagementData | null>(null)
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [membersError, setMembersError] = useState("")
 
   useEffect(() => {
+    setActiveTab("settings")
+    setMemberManagement(null)
+    setMembersLoading(false)
+    setMembersError("")
     if (!project) return
     setName(project.name || "")
     setDescription(project.description || "")
@@ -541,6 +881,29 @@ function EditProjectModal({ project, onCancel, onSaved }: { project: any | null;
     setColor(project.color || "#6366f1")
     setError("")
   }, [project])
+
+  useEffect(() => {
+    if (!projectId || activeTab !== "members") return
+
+    let cancelled = false
+    setMembersLoading(true)
+    setMembersError("")
+
+    void getProjectMemberManagement(projectId)
+      .then((data) => {
+        if (!cancelled) setMemberManagement(data)
+      })
+      .catch(() => {
+        if (!cancelled) setMembersError("The project members could not be loaded")
+      })
+      .finally(() => {
+        if (!cancelled) setMembersLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, projectId])
 
   if (!project) return null
 
@@ -566,20 +929,71 @@ function EditProjectModal({ project, onCancel, onSaved }: { project: any | null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={(event) => event.target === event.currentTarget && onCancel()}>
-      <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-xl border border-[#3f3f46] bg-[#202023] p-6">
-        <div className="flex items-center justify-between gap-3"><h3 className="text-lg font-semibold text-white">Edit project</h3><button type="button" onClick={onCancel} className="text-xs text-[#a1a1aa] hover:text-white">Close</button></div>
-        <div className="mt-5 space-y-4">
-          <label className="block text-xs font-semibold text-[#a1a1aa]">Project name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={500} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
-          <label className="block text-xs font-semibold text-[#a1a1aa]">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className="mt-1.5 w-full resize-none rounded-md border border-[#3f3f46] bg-[#18181b] px-3 py-2 text-sm text-white outline-none focus:border-[#0075de]" /></label>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-semibold text-[#a1a1aa]">Deadline<input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
-            <label className="block text-xs font-semibold text-[#a1a1aa]">Default view<select value={defaultView} onChange={(event) => setDefaultView(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]"><option value="list">List</option><option value="board">Board</option><option value="calendar">Calendar</option><option value="timeline">Timeline</option></select></label>
-          </div>
-          <label className="block text-xs font-semibold text-[#a1a1aa]">Color<input type="color" value={color} onChange={(event) => setColor(event.target.value)} className="mt-1.5 h-10 w-full cursor-pointer rounded-md border border-[#3f3f46] bg-[#18181b] p-1" /></label>
+      <div role="dialog" aria-modal="true" aria-labelledby="edit-project-title" className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-[#3f3f46] bg-[#202023]">
+        <div className="flex items-center justify-between gap-3 border-b border-[#3f3f46] px-6 py-4">
+          <h3 id="edit-project-title" className="text-lg font-semibold text-white">Edit project</h3>
+          <button type="button" onClick={onCancel} className="text-xs text-[#a1a1aa] hover:text-white">Close</button>
         </div>
-        {error ? <p className="mt-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</p> : null}
-        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={saving} className="rounded-md border border-[#3f3f46] px-4 py-2 text-xs text-white disabled:opacity-50">Cancel</button><button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-[#0075de] px-5 py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button></div>
-      </form>
+
+        <div role="tablist" aria-label="Edit project sections" className="flex gap-1 border-b border-[#3f3f46] px-6 pt-2">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "settings"}
+            onClick={() => setActiveTab("settings")}
+            className={`border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors ${activeTab === "settings" ? "border-[#0075de] text-white" : "border-transparent text-[#a1a1aa] hover:text-white"}`}
+          >
+            Project settings
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "members"}
+            onClick={() => setActiveTab("members")}
+            className={`border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors ${activeTab === "members" ? "border-[#0075de] text-white" : "border-transparent text-[#a1a1aa] hover:text-white"}`}
+          >
+            Members
+          </button>
+        </div>
+
+        {activeTab === "settings" ? (
+          <form onSubmit={handleSubmit} className="min-h-0 overflow-y-auto p-6">
+            <div className="space-y-4">
+              <label className="block text-xs font-semibold text-[#a1a1aa]">Project name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={500} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
+              <label className="block text-xs font-semibold text-[#a1a1aa]">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className="mt-1.5 w-full resize-none rounded-md border border-[#3f3f46] bg-[#18181b] px-3 py-2 text-sm text-white outline-none focus:border-[#0075de]" /></label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-[#a1a1aa]">Deadline<input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]" /></label>
+                <label className="block text-xs font-semibold text-[#a1a1aa]">Default view<select value={defaultView} onChange={(event) => setDefaultView(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-white outline-none focus:border-[#0075de]"><option value="list">List</option><option value="board">Board</option><option value="calendar">Calendar</option><option value="timeline">Timeline</option></select></label>
+              </div>
+              <label className="block text-xs font-semibold text-[#a1a1aa]">Color<input type="color" value={color} onChange={(event) => setColor(event.target.value)} className="mt-1.5 h-10 w-full cursor-pointer rounded-md border border-[#3f3f46] bg-[#18181b] p-1" /></label>
+            </div>
+            {error ? <p className="mt-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</p> : null}
+            <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={saving} className="rounded-md border border-[#3f3f46] px-4 py-2 text-xs text-white disabled:opacity-50">Cancel</button><button type="submit" disabled={saving || !name.trim()} className="rounded-full bg-[#0075de] px-5 py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button></div>
+          </form>
+        ) : (
+          <div role="tabpanel" className="min-h-0 overflow-y-auto p-6">
+            {membersLoading ? (
+              <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-[#a1a1aa]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading project members…
+              </div>
+            ) : membersError ? (
+              <p role="alert" className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{membersError}</p>
+            ) : memberManagement ? (
+              <ProjectMembersManager
+                projectId={project.id}
+                canManage={memberManagement.canManage}
+                canTransferOwnership={memberManagement.canTransferOwnership}
+                ownerId={memberManagement.ownerId}
+                members={memberManagement.members}
+                workspaceMembers={memberManagement.workspaceMembers}
+                layout="compact"
+                reloadData={() => getProjectMemberManagement(project.id)}
+              />
+            ) : null}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

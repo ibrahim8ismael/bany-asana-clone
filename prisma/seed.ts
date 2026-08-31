@@ -146,10 +146,10 @@ async function main() {
 
   await prisma.projectMember.createMany({
     data: [
-      { project_id: boardProject.id, user_id: alice.id, role: 'owner' },
-      { project_id: boardProject.id, user_id: bob.id, role: 'editor' },
-      { project_id: listProject.id, user_id: charlie.id, role: 'owner' },
-      { project_id: listProject.id, user_id: alice.id, role: 'viewer' },
+      { project_id: boardProject.id, user_id: alice.id, role: 'admin' },
+      { project_id: boardProject.id, user_id: bob.id, role: 'member' },
+      { project_id: listProject.id, user_id: charlie.id, role: 'admin' },
+      { project_id: listProject.id, user_id: alice.id, role: 'member' },
     ],
   });
 

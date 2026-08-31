@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { tasksToCsv } from "@/lib/task-export"
-import { getActiveWorkspaceForUser, taskAccessWhere } from "@/lib/permissions"
+import { getActiveWorkspaceForUser, isSuperAdminUser, taskAccessWhere } from "@/lib/permissions"
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -11,11 +11,14 @@ export async function GET() {
     return new Response("Unauthorized", { status: 401 })
   }
 
-  const activeWorkspace = await getActiveWorkspaceForUser(userId)
+  const [activeWorkspace, isSuperAdmin] = await Promise.all([
+    getActiveWorkspaceForUser(userId),
+    isSuperAdminUser(userId),
+  ])
   const tasks = activeWorkspace ? await prisma.task.findMany({
     where: {
       AND: [
-        taskAccessWhere(userId, "view"),
+        taskAccessWhere(userId, "view", isSuperAdmin),
         { workspace_id: activeWorkspace.id },
         { assignee_id: userId },
       ],

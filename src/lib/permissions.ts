@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { PROJECT_MEMBER_ROLES, WORKSPACE_ROLES, type ProjectRole, type WorkspaceRole } from "@/lib/project-membership"
 
 export type WorkspaceAccessLevel = "view" | "write" | "admin"
 export type ProjectAccessLevel = "view" | "comment" | "edit" | "manage"
@@ -19,16 +20,14 @@ export async function isSuperAdminUser(userId: string) {
   return Boolean(user?.is_super_admin)
 }
 
-// RBAC Simplified Roles
-const WORKSPACE_VIEW_ROLES = ["admin", "user"] as const
-const WORKSPACE_WRITE_ROLES = ["admin", "user"] as const
-const WORKSPACE_ADMIN_ROLES = ["admin"] as const
+const WORKSPACE_VIEW_ROLES: readonly WorkspaceRole[] = WORKSPACE_ROLES
+const WORKSPACE_WRITE_ROLES: readonly WorkspaceRole[] = WORKSPACE_ROLES
+const WORKSPACE_ADMIN_ROLES: readonly WorkspaceRole[] = ["owner", "admin"]
 
-const PROJECT_VIEW_ROLES = ["admin", "user"] as const
-const PROJECT_COMMENT_ROLES = ["admin", "user"] as const
-const PROJECT_EDIT_ROLES = ["admin", "user"] as const
+const PROJECT_VIEW_ROLES = PROJECT_MEMBER_ROLES
+const PROJECT_COMMENT_ROLES = PROJECT_MEMBER_ROLES
+const PROJECT_EDIT_ROLES = PROJECT_MEMBER_ROLES
 const PROJECT_MANAGE_ROLES = ["admin"] as const
-const TEAM_VIEW_ROLES = ["admin", "user"] as const
 
 function workspaceRolesFor(level: WorkspaceAccessLevel) {
   switch (level) {
@@ -54,10 +53,46 @@ function projectRolesFor(level: ProjectAccessLevel) {
   }
 }
 
+export function projectRoleGrantsAccess({
+  role,
+  isOwner = false,
+  isSuperAdmin = false,
+  level = "view",
+}: {
+  role: ProjectRole | null
+  isOwner?: boolean
+  isSuperAdmin?: boolean
+  level?: ProjectAccessLevel
+}) {
+  const allowedRoles = projectRolesFor(level) as readonly ProjectRole[]
+  return isSuperAdmin || isOwner || (role !== null && allowedRoles.includes(role))
+}
+
+export function requiredTaskUpdateAccess(input: {
+  title?: unknown
+  description_rich_text?: unknown
+  status?: unknown
+  priority?: unknown
+  due_date?: unknown
+  assignee_id?: unknown
+  project_id?: unknown
+  client_id?: unknown
+  section_id?: unknown
+}): ProjectAccessLevel {
+  const changesAdministration = input.assignee_id !== undefined
+    || input.project_id !== undefined
+    || input.client_id !== undefined
+    || input.section_id !== undefined
+  return changesAdministration ? "manage" : "edit"
+}
+
 export function workspaceAccessWhere(
   userId: string,
-  level: WorkspaceAccessLevel = "view"
+  level: WorkspaceAccessLevel = "view",
+  isSuperAdmin = false,
 ): Prisma.WorkspaceWhereInput {
+  if (isSuperAdmin) return {}
+
   const roles = workspaceRolesFor(level)
 
   return {
@@ -77,93 +112,70 @@ export function workspaceAccessWhere(
 
 export function projectAccessWhere(
   userId: string,
-  level: ProjectAccessLevel = "view"
+  level: ProjectAccessLevel = "view",
+  isSuperAdmin = false,
 ): Prisma.ProjectWhereInput {
+  if (isSuperAdmin) return {}
+
   const projectRoles = projectRolesFor(level)
-  const workspaceAdminMembership = {
+  return {
     workspace: {
-      members: {
-        some: {
-          user_id: userId,
-          role: { in: [...WORKSPACE_ADMIN_ROLES] },
-        },
-      },
+      active_users: { some: { id: userId } },
+      members: { some: { user_id: userId, role: { in: [...WORKSPACE_VIEW_ROLES] } } },
     },
-  } satisfies Prisma.ProjectWhereInput
-
-  const baseRules: Prisma.ProjectWhereInput[] = [
-    { owner_id: userId },
-    { workspace: { owner_id: userId } },
-    workspaceAdminMembership,
-    {
-      members: {
-        some: {
-          user_id: userId,
-          role: { in: [...projectRoles] },
-        },
-      },
-    },
-  ]
-
-  if (level === "view") {
-    baseRules.push(
+    OR: [
+      { owner_id: userId },
       {
-        privacy: "workspace_visible",
-        workspace: {
-          members: {
-            some: {
-              user_id: userId,
-              role: { in: [...WORKSPACE_VIEW_ROLES] },
-            },
+        members: {
+          some: {
+            user_id: userId,
+            role: { in: [...projectRoles] },
           },
         },
       },
-      {
-        privacy: "team_visible",
-        team: {
-          members: {
-            some: {
-              user_id: userId,
-              role: { in: [...TEAM_VIEW_ROLES] },
-            },
-          },
-        },
-      }
-    )
+    ],
   }
-
-  return { OR: baseRules }
 }
 
 export function taskAccessWhere(
   userId: string,
-  level: ProjectAccessLevel = "view"
+  level: ProjectAccessLevel = "view",
+  isSuperAdmin = false
 ): Prisma.TaskWhereInput {
-  const projectLevel = level === "view" ? "view" : level === "comment" ? "comment" : level === "edit" ? "edit" : "manage"
+  if (isSuperAdmin) return {}
+
   const workspaceLevel = workspaceLevelForProjectLevel(level)
 
   const rules: Prisma.TaskWhereInput[] = [
-      {
-        project: projectAccessWhere(userId, projectLevel),
+    projectTaskAccessWhere(userId, level),
+    {
+      project_id: null,
+      client: {
+        workspace: workspaceAccessWhere(userId, workspaceLevel),
       },
-      {
-        project_id: null,
-        client: {
-          workspace: workspaceAccessWhere(userId, workspaceLevel),
-        },
-      },
-      {
-        project_id: null,
-        client_id: null,
-        OR: [{ assignee_id: userId }, { creator_id: userId }],
-      },
+    },
+    {
+      project_id: null,
+      client_id: null,
+      OR: [{ assignee_id: userId }, { creator_id: userId }],
+    },
   ]
 
   if (level === "view" || level === "comment") {
-    rules.push({ reviewer_id: userId, quality_required: true })
+    rules.push({ project_id: null, reviewer_id: userId, quality_required: true })
   }
 
   return { OR: rules }
+}
+
+export function projectTaskAccessWhere(
+  userId: string,
+  level: ProjectAccessLevel = "view",
+): Prisma.TaskWhereInput {
+  return {
+    project_id: { not: null },
+    project: projectAccessWhere(userId, level),
+  }
 }
 
 export interface ProjectAccessContext {
@@ -224,10 +236,12 @@ export async function getAccessibleProjectContext(
   projectId: string,
   level: ProjectAccessLevel = "view"
 ): Promise<ProjectAccessContext | null> {
+  const isSuperAdmin = await isSuperAdminUser(userId)
+
   return prisma.project.findFirst({
     where: {
       id: projectId,
-      ...projectAccessWhere(userId, level),
+      ...projectAccessWhere(userId, level, isSuperAdmin),
     },
     select: {
       id: true,
@@ -245,10 +259,12 @@ export async function getAccessibleClientContext(
   clientId: string,
   level: WorkspaceAccessLevel = "view"
 ): Promise<ClientAccessContext | null> {
+  const isSuperAdmin = await isSuperAdminUser(userId)
+
   return prisma.client.findFirst({
     where: {
       id: clientId,
-      workspace: workspaceAccessWhere(userId, level),
+      workspace: workspaceAccessWhere(userId, level, isSuperAdmin),
     },
     select: {
       id: true,
@@ -265,17 +281,21 @@ export async function getAccessibleSectionContext(
   sectionId: string,
   level: Extract<ProjectAccessLevel, "view" | "edit" | "manage"> = "view"
 ): Promise<SectionAccessContext | null> {
+  const isSuperAdmin = await isSuperAdminUser(userId)
+
   return prisma.section.findFirst({
     where: {
       id: sectionId,
-      OR: [
-        { user_id: userId },
-        {
-          project: {
-            ...projectAccessWhere(userId, level === "view" ? "view" : level),
+      ...(isSuperAdmin ? {} : {
+        OR: [
+          { user_id: userId },
+          {
+            project: {
+              ...projectAccessWhere(userId, level === "view" ? "view" : level),
+            },
           },
-        },
-      ],
+        ],
+      }),
     },
     select: {
       id: true,
@@ -296,12 +316,14 @@ export async function getAccessibleSectionContext(
 export async function getAccessibleTaskContext(
   userId: string,
   taskId: string,
-  level: ProjectAccessLevel = "view"
+  level: ProjectAccessLevel = "view",
 ): Promise<TaskAccessContext | null> {
+  const isSuperAdmin = await isSuperAdminUser(userId)
+
   return prisma.task.findFirst({
     where: {
       id: taskId,
-      ...taskAccessWhere(userId, level),
+      ...taskAccessWhere(userId, level, isSuperAdmin),
     },
     select: {
       id: true,
@@ -347,7 +369,7 @@ export async function getActiveWorkspaceForUser(userId: string): Promise<{
 } | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { active_workspace_id: true },
+    select: { active_workspace_id: true, is_super_admin: true },
   })
 
   if (!user) return null
@@ -363,7 +385,7 @@ export async function getActiveWorkspaceForUser(userId: string): Promise<{
     const activeWorkspace = await prisma.workspace.findFirst({
       where: {
         id: user.active_workspace_id,
-        ...workspaceAccessWhere(userId, "view"),
+        ...workspaceAccessWhere(userId, "view", user.is_super_admin),
       },
       select: workspaceSelect,
     })
@@ -372,7 +394,7 @@ export async function getActiveWorkspaceForUser(userId: string): Promise<{
   }
 
   const fallbackWorkspace = await prisma.workspace.findFirst({
-    where: workspaceAccessWhere(userId, "view"),
+    where: workspaceAccessWhere(userId, "view", user.is_super_admin),
     select: workspaceSelect,
     orderBy: [{ created_at: "asc" }, { id: "asc" }],
   })
@@ -388,8 +410,9 @@ export async function getActiveWorkspaceForUser(userId: string): Promise<{
 }
 
 export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
+  const isSuperAdmin = await isSuperAdminUser(userId)
   const workspaces = await prisma.workspace.findMany({
-    where: workspaceAccessWhere(userId, "view"),
+    where: workspaceAccessWhere(userId, "view", isSuperAdmin),
     select: { id: true },
   })
 
@@ -397,15 +420,20 @@ export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
 }
 
 export async function canAccessWorkspace(userId: string, workspaceId: string, level: WorkspaceAccessLevel = "view") {
+  const isSuperAdmin = await isSuperAdminUser(userId)
   const workspace = await prisma.workspace.findFirst({
     where: {
       id: workspaceId,
-      ...workspaceAccessWhere(userId, level),
+      ...workspaceAccessWhere(userId, level, isSuperAdmin),
     },
     select: { id: true },
   })
 
   return Boolean(workspace)
+}
+
+export async function canManageWorkspace(userId: string, workspaceId: string) {
+  return canAccessWorkspace(userId, workspaceId, "admin")
 }
 
 export async function canAccessClient(userId: string, clientId: string, level: WorkspaceAccessLevel = "view") {
@@ -414,6 +442,20 @@ export async function canAccessClient(userId: string, clientId: string, level: W
 
 export async function canAccessProject(userId: string, projectId: string, level: ProjectAccessLevel = "view") {
   return Boolean(await getAccessibleProjectContext(userId, projectId, level))
+}
+
+export async function canManageProject(userId: string, projectId: string) {
+  return canAccessProject(userId, projectId, "manage")
+}
+
+export async function canManageProjectMembers(userId: string, projectId: string) {
+  return canManageProject(userId, projectId)
+}
+
+export async function canTransferProjectOwnership(userId: string, projectId: string) {
+  const context = await getAccessibleProjectContext(userId, projectId, "manage")
+  if (!context) return false
+  return (await isSuperAdminUser(userId)) || context.owner_id === userId
 }
 
 export async function canAccessSection(

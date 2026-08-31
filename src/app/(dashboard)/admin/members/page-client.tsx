@@ -13,6 +13,7 @@ import {
   updateWorkspaceMemberRole,
 } from "@/actions/admin-actions"
 import AddMemberModal from "@/components/add-member-modal"
+import type { WorkspaceRole } from "@/lib/project-membership"
 import { Plus } from "lucide-react"
 
 interface RequestItem {
@@ -59,8 +60,10 @@ function roleClasses(role: string) {
   switch (role) {
     case "admin":
       return "bg-blue-500/15 text-blue-200 border-blue-500/20"
-    case "user":
+    case "member":
       return "bg-emerald-500/15 text-emerald-200 border-emerald-500/20"
+    case "owner":
+      return "bg-violet-500/15 text-violet-200 border-violet-500/20"
     default:
       return "bg-white/10 text-white/60 border-white/10"
   }
@@ -241,24 +244,24 @@ export default function AdminMembersClient({
                           <select
                             title="Update member role"
                             value={membership.role}
-                            disabled={pending}
+                            disabled={pending || membership.role === "owner"}
                             onChange={(event) =>
                               runAction(() =>
                                 updateWorkspaceMemberRole({
                                   workspaceId: workspace.id,
                                   userId: membership.user.id,
-                                  role: event.target.value as "admin" | "user",
+                                  role: event.target.value as Exclude<WorkspaceRole, "owner">,
                                 })
                               )
                             }
                             className="rounded-md border border-[#3f3f46] bg-[#18181b] px-2.5 py-1 text-xs text-[#f4f4f5] outline-none focus:border-[#0075de]"
                           >
                             <option value="admin">Admin</option>
-                            <option value="user">User</option>
+                            <option value="member">Member</option>
                           </select>
                           <Button
                             variant="outline"
-                            disabled={pending}
+                            disabled={pending || membership.role === "owner"}
                             onClick={() => runAction(() => removeWorkspaceMember({ workspaceId: workspace.id, userId: membership.user.id }))}
                             className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
                           >

@@ -9,6 +9,7 @@ import ProjectViewTabs from "@/components/project-view-tabs"
 import { isSuperAdminUser, projectAccessWhere } from "@/lib/permissions"
 import ShareButton from "@/components/share-button"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
+import { mergeUnsectionedProjectTasksIntoSections } from "@/lib/project-task-visibility"
 import { ListTodo, Star } from "lucide-react"
 
 export default async function ListPage({ params }: { params: Promise<{ id: string }> }) {
@@ -18,11 +19,24 @@ export default async function ListPage({ params }: { params: Promise<{ id: strin
   const userId = (session.user as { id?: string } | undefined)?.id
   if (!userId) return notFound()
 
+  const canImport = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
     where: id !== "demo"
-      ? { id, ...projectAccessWhere(userId) }
-      : { default_view: "list", ...projectAccessWhere(userId) },
+      ? { id, ...projectAccessWhere(userId, "view", canImport) }
+      : { default_view: "list", ...projectAccessWhere(userId, "view", canImport) },
     include: {
+      tasks: {
+        where: { archived: false, section_id: null },
+        orderBy: { position: "asc" },
+        include: {
+          assignee: { select: USER_PUBLIC_SELECT },
+          client: true,
+          tags: { include: { tag: true } },
+          comments: { include: { author: { select: USER_PUBLIC_SELECT } } },
+          subtasks: true,
+          attachments: true,
+        },
+      },
       sections: {
         orderBy: { position: 'asc' },
         include: {
@@ -52,8 +66,7 @@ export default async function ListPage({ params }: { params: Promise<{ id: strin
     }
     return notFound()
   }
-  const canImport = await isSuperAdminUser(userId)
-
+  const visibleProject = mergeUnsectionedProjectTasksIntoSections(project)
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#1e1f21]">
       <div className="flex min-h-20 shrink-0 items-center justify-between gap-2 border-b border-[#414245] px-3 py-3 sm:gap-4 sm:px-7">
@@ -84,7 +97,7 @@ export default async function ListPage({ params }: { params: Promise<{ id: strin
       </div>
       <ProjectViewTabs projectId={project.id} clientId={project.client_id} />
       <div className="mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-auto p-4 custom-scrollbar sm:p-6">
-        <ListClient project={project} />
+        <ListClient project={visibleProject} />
       </div>
     </div>
   )

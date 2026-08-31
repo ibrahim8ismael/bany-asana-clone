@@ -8,6 +8,7 @@ import { projectAccessWhere } from "@/lib/permissions"
 import ShareButton from "@/components/share-button"
 import { isSuperAdminUser } from "@/lib/permissions"
 import { USER_PUBLIC_SELECT } from "@/lib/data-selects"
+import { mergeUnsectionedProjectTasksIntoSections } from "@/lib/project-task-visibility"
 import { ListTodo, Star } from "lucide-react"
 import { notFound } from "next/navigation"
 import ProjectAccessDenied from "@/components/project-access-denied"
@@ -19,11 +20,24 @@ export default async function BoardPage({ params }: { params: Promise<{ id: stri
   const userId = (session.user as { id?: string } | undefined)?.id
   if (!userId) return null
 
+  const canImport = await isSuperAdminUser(userId)
   const project = await prisma.project.findFirst({
     where: id !== "demo"
-      ? { id, ...projectAccessWhere(userId) }
-      : { default_view: "board", ...projectAccessWhere(userId) },
+      ? { id, ...projectAccessWhere(userId, "view", canImport) }
+      : { default_view: "board", ...projectAccessWhere(userId, "view", canImport) },
     include: {
+      tasks: {
+        where: { archived: false, section_id: null },
+        orderBy: { position: "asc" },
+        include: {
+          assignee: { select: USER_PUBLIC_SELECT },
+          client: true,
+          tags: { include: { tag: true } },
+          attachments: true,
+          comments: { include: { author: { select: USER_PUBLIC_SELECT } } },
+          subtasks: true,
+        },
+      },
       sections: {
         orderBy: { position: 'asc' },
         include: {
@@ -54,7 +68,11 @@ export default async function BoardPage({ params }: { params: Promise<{ id: stri
     return notFound()
   }
 
-  const canImport = await isSuperAdminUser(userId)
+  const canManageTasks = canImport || Boolean(await prisma.project.findFirst({
+    where: { id: project.id, ...projectAccessWhere(userId, "manage") },
+    select: { id: true },
+  }))
+  const visibleProject = mergeUnsectionedProjectTasksIntoSections(project)
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#1e1f21]">
@@ -95,7 +113,7 @@ export default async function BoardPage({ params }: { params: Promise<{ id: stri
       <ProjectViewTabs projectId={project.id} clientId={project.client_id} />
       {/* Board content */}
       <div className="min-h-0 flex-1 overflow-hidden bg-[#1e1f21] p-4 sm:p-6">
-        <BoardClient project={project} />
+        <BoardClient project={visibleProject} canManageTasks={canManageTasks} />
       </div>
     </div>
   )

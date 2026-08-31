@@ -15,6 +15,14 @@ export type QualityIssueReason = (typeof QUALITY_ISSUE_REASONS)[number]
 export const QUALITY_GRADES = ["excellent", "good", "needs_rework", "major_rework"] as const
 export type QualityGrade = (typeof QUALITY_GRADES)[number]
 
+export const PROJECT_QUALITY_POLICIES = ["off", "optional", "required"] as const
+export type ProjectQualityPolicy = (typeof PROJECT_QUALITY_POLICIES)[number]
+
+export type QualityWorkflowSnapshot = {
+  status: string
+  qualityState: string
+}
+
 export const QUALITY_GRADE_CONFIG: Record<QualityGrade, {
   label: string
   score: number
@@ -95,6 +103,66 @@ export function resolveQualityReviewOutcome({
   const requiresRework = !allCriteriaPassed || severities.some((severity) => severity === "major" || severity === "blocker")
   if (requiresRework) return "needs_rework" as const
   return severities.includes("minor") ? "approved_with_notes" as const : "approved" as const
+}
+
+export function validateQualitySubmissionTransition({
+  status,
+  qualityState,
+  effectivePolicy,
+}: QualityWorkflowSnapshot & { effectivePolicy: ProjectQualityPolicy }): string | null {
+  if (effectivePolicy === "off") return "Quality review is off for this task"
+
+  if (status === "needs_rework" || qualityState === "needs_rework") {
+    return status === "needs_rework" && qualityState === "needs_rework"
+      ? null
+      : "The task's Needs Rework status is out of sync with its quality state"
+  }
+
+  if (status !== "in_progress") return "Task must be In Progress before it can be submitted for review"
+
+  const initialStateIsReady = qualityState === "ready"
+    || (effectivePolicy === "optional" && qualityState === "not_required")
+  return initialStateIsReady ? null : "Task is not ready to submit for review"
+}
+
+export function validateQualityReviewTransition({
+  status,
+  qualityState,
+  pendingReviewCount,
+}: QualityWorkflowSnapshot & { pendingReviewCount: number }): string | null {
+  if (status !== "submitted_for_review" || qualityState !== "submitted") {
+    return "The task is not currently In Review"
+  }
+  if (pendingReviewCount !== 1) return "There must be exactly one pending quality review"
+  return null
+}
+
+export function buildQualitySubmissionTaskUpdate(input: {
+  reviewerId: string
+  now: Date
+  firstSubmittedAt: Date | null
+  originalDueDate: Date | null
+  dueDate: Date | null
+}) {
+  return {
+    status: "submitted_for_review",
+    quality_required: true,
+    quality_state: "submitted",
+    reviewer_id: input.reviewerId,
+    first_submitted_at: input.firstSubmittedAt || input.now,
+    original_due_date: input.firstSubmittedAt ? input.originalDueDate : input.dueDate,
+    rework_due_date: null,
+    completed_at: null,
+    review_cycle_count: { increment: 1 },
+  } as const
+}
+
+export function isPendingQualityReviewTask(snapshot: QualityWorkflowSnapshot) {
+  return snapshot.status === "submitted_for_review" && snapshot.qualityState === "submitted"
+}
+
+export function isQualityReworkTask(snapshot: QualityWorkflowSnapshot) {
+  return snapshot.status === "needs_rework" && snapshot.qualityState === "needs_rework"
 }
 
 export function buildQualityDecisionTaskUpdate(input: {

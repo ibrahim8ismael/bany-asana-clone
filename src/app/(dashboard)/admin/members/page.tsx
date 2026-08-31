@@ -14,7 +14,7 @@ export default async function AdminMembersPage() {
   }
 
   const isSuperAdmin = await isSuperAdminUser(userId)
-  const managedWorkspaceWhere = workspaceAccessWhere(userId, "admin")
+  const managedWorkspaceWhere = workspaceAccessWhere(userId, "admin", isSuperAdmin)
   const canManageWorkspace = isSuperAdmin || Boolean(await prisma.workspace.findFirst({
     where: managedWorkspaceWhere,
     select: { id: true },

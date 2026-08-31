@@ -32,7 +32,7 @@ import {
 import { addDays, addWeeks, format, isFuture, isPast, isSameDay, isToday, startOfWeek, subWeeks } from "date-fns"
 import { updateTask, updateTaskPosition, createSection, deleteSection, createTask } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
-import { TASK_WORKFLOW_STAGES, validateManualTaskTransition } from "@/lib/workflow"
+import { TASK_WORKFLOW_STAGES, type TaskWorkflowStageId, validateManualTaskTransition } from "@/lib/workflow"
 
 const TaskDrawer = dynamic(() => import("./task-drawer"), { ssr: false })
 
@@ -67,6 +67,7 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
   const [newSectionName, setNewSectionName] = useState("")
   const [filterBy, setFilterBy] = useState<FilterType>("all")
   const [sortBy, setSortBy] = useState<SortType>("recent")
+  const [actionError, setActionError] = useState("")
   const searchParams = useSearchParams()
 
   const syncQueue = (items: any[], updatedTask: any, keep: boolean) => {
@@ -265,15 +266,25 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
     }
   }
 
-  const handleCreateTask = async (sectionId?: string) => {
+  const handleCreateTask = async ({
+    sectionId,
+    status,
+  }: {
+    sectionId?: string
+    status?: TaskWorkflowStageId
+  } = {}) => {
+    setActionError("")
     const result = await createTask({
       title: "New Task",
       assignee_id: userId,
-      section_id: sectionId
+      section_id: sectionId,
+      status,
     })
     if (result.success && result.task) {
       applyTaskUpdate(result.task)
       setSelectedTask(result.task)
+    } else {
+      setActionError(result.error || "The task could not be created")
     }
   }
 
@@ -415,6 +426,12 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
         </div>
       </div>
 
+      {actionError ? (
+        <p role="alert" className="mx-4 mt-4 shrink-0 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300 sm:mx-6">
+          {actionError}
+        </p>
+      ) : null}
+
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 overflow-hidden bg-[#18181b]">
         {view === "list" && (
@@ -447,15 +464,24 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
           <DragDropContext onDragEnd={onDragEnd}>
             <div className="h-full min-h-0 overflow-auto custom-scrollbar">
               <div className="flex min-w-max items-start gap-4 p-4 sm:gap-6 sm:p-6">
-                {groupedTasks.map((section) => (
-                  <BoardColumn 
-                    key={section.id} 
-                    section={section} 
-                    onTaskClick={setSelectedTask}
-                    onAddTask={() => handleCreateTask(groupBy === "custom" ? section.id : undefined)}
-                    lockQualityStatus={groupBy === "status"}
-                  />
-                ))}
+                {groupedTasks.map((section) => {
+                  const workflowStage = groupBy === "status"
+                    ? TASK_WORKFLOW_STAGES.find((stage) => stage.id === section.id)
+                    : null
+                  return (
+                    <BoardColumn
+                      key={section.id}
+                      section={section}
+                      onTaskClick={setSelectedTask}
+                      onAddTask={() => handleCreateTask({
+                        sectionId: groupBy === "custom" ? section.id : undefined,
+                        status: workflowStage?.id,
+                      })}
+                      canAddTask={!workflowStage || workflowStage.manualTransition}
+                      addTaskLabel={`Add task to ${section.name}`}
+                    />
+                  )
+                })}
                 {groupBy === "custom" && (
                   <div className="w-[300px] shrink-0">
                     <AddSectionButton 
@@ -574,7 +600,7 @@ function ListSection({ section, onTaskClick, onDeleteSection }: any) {
   )
 }
 
-function BoardColumn({ section, onTaskClick, onAddTask }: any) {
+function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTaskLabel }: any) {
   return (
     <div className="flex min-h-[360px] w-[calc(100vw-3rem)] shrink-0 flex-col rounded-xl border border-[#3f3f46] bg-[#202023] sm:w-[300px]">
       <div className="p-3 border-b border-[#3f3f46] flex items-center justify-between mb-1">
@@ -582,7 +608,27 @@ function BoardColumn({ section, onTaskClick, onAddTask }: any) {
            <h3 className="text-xs font-bold uppercase tracking-wider text-[#f4f4f5]">{section.name}</h3>
            <span className="text-[10px] font-bold text-[#a1a1aa] bg-[#18181b] px-1.5 py-0.5 rounded-full">{section.tasks.length}</span>
         </div>
-        <button aria-label="More options" className="p-1 hover:bg-[#27272a] rounded text-[#a1a1aa]"><MoreHorizontal className="w-4 h-4" /></button>
+        <div className="flex items-center gap-1">
+          {canAddTask ? (
+            <button
+              type="button"
+              onClick={onAddTask}
+              aria-label={addTaskLabel}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#3f3f46] text-[#a1a1aa] transition-colors hover:border-[#0075de]/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <span
+              aria-label={`${section.name} is controlled by the quality workflow`}
+              title={`${section.name} is controlled by the quality workflow`}
+              className="inline-flex h-7 w-7 items-center justify-center text-[#71717a]"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+            </span>
+          )}
+          <button aria-label="More options" className="p-1 hover:bg-[#27272a] rounded text-[#a1a1aa]"><MoreHorizontal className="w-4 h-4" /></button>
+        </div>
       </div>
       
       <Droppable droppableId={section.id}>
@@ -633,13 +679,17 @@ function BoardColumn({ section, onTaskClick, onAddTask }: any) {
               </Draggable>
             ))}
             {provided.placeholder}
-            <button 
-              onClick={onAddTask}
-              className="w-full py-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-[#a1a1aa] hover:text-[#f4f4f5] border border-dashed border-[#3f3f46] hover:border-[#0075de]/50 rounded-lg transition-all"
-            >
-              <Plus className="w-3.5 h-3.5 text-[#0075de]" />
-              Add task
-            </button>
+            {canAddTask ? (
+              <button
+                type="button"
+                onClick={onAddTask}
+                aria-label={addTaskLabel}
+                className="w-full py-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-[#a1a1aa] hover:text-[#f4f4f5] border border-dashed border-[#3f3f46] hover:border-[#0075de]/50 rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#0075de]" />
+                Add task
+              </button>
+            ) : null}
           </div>
         )}
       </Droppable>

@@ -134,7 +134,6 @@ async function notifyProjectManagers({
     | {
         id: string
         name: string
-        owner_id: string
         members: Array<{ user_id: string }>
       }
     | null = null
@@ -151,7 +150,6 @@ async function notifyProjectManagers({
           select: {
             id: true,
             name: true,
-            owner_id: true,
             members: {
               where: { role: "admin" },
               select: { user_id: true },
@@ -179,7 +177,6 @@ async function notifyProjectManagers({
             select: {
               id: true,
               name: true,
-              owner_id: true,
               members: {
                 where: { role: "admin" },
                 select: { user_id: true },
@@ -202,7 +199,6 @@ async function notifyProjectManagers({
         select: {
           id: true,
           name: true,
-          owner_id: true,
           members: {
             where: { role: "admin" },
             select: { user_id: true },
@@ -214,7 +210,7 @@ async function notifyProjectManagers({
     if (!project) return
   }
 
-  const recipients = [...new Set([project.owner_id, ...project.members.map((member) => member.user_id)])].filter(
+  const recipients = [...new Set(project.members.map((member) => member.user_id))].filter(
     (userId) => userId && userId !== actorId
   )
 

@@ -1,46 +1,41 @@
-# RBAC Implementation Summary
+# RBAC model
 
-## 1. Updated RBAC Architecture
-We have successfully refactored the Role-Based Access Control (RBAC) model to use three clean, primary roles:
-1. **Super Admin**: Checked via the `is_super_admin` flag on the `User` model. Grants full system access.
-2. **Admin**: Maps to `admin` role in `WorkspaceMember` and `ProjectMember`. Grants administrative access within the assigned workspace or project, including managing users and workspace settings.
-3. **User**: Maps to `user` role in `WorkspaceMember` and `ProjectMember`. A standard user with access only to explicitly authorized resources.
+## Canonical roles
 
-## 2. Refactored Authorization Utilities
-The centralized permission logic in `src/lib/permissions.ts` has been refactored. The arrays defining role permissions (`WORKSPACE_VIEW_ROLES`, `PROJECT_MANAGE_ROLES`, etc.) have been simplified:
-- `WORKSPACE_ADMIN_ROLES`: `["admin"]`
-- `WORKSPACE_WRITE_ROLES`: `["admin", "user"]`
-- `WORKSPACE_VIEW_ROLES`: `["admin", "user"]`
-- `PROJECT_MANAGE_ROLES`: `["admin"]`
-- `PROJECT_EDIT_ROLES`: `["admin", "user"]`
-- `PROJECT_COMMENT_ROLES`: `["admin", "user"]`
-- `PROJECT_VIEW_ROLES`: `["admin", "user"]`
+Workspace membership uses exactly:
 
-The server actions in `src/actions/server-actions.ts` and `src/actions/quality-actions.ts` were updated to reflect these simplified roles, ensuring all validation occurs strictly on the server to prevent privilege escalation.
+- `owner`: the one workspace owner with full workspace control.
+- `admin`: workspace resource and membership administration.
+- `member`: normal workspace access.
 
-## 3. Database/Schema Changes
-No strict structural schema changes (like new tables) were required since the `role` fields in `WorkspaceMember` and `ProjectMember` are stored as `String` types.
-However, a data migration is required to map old roles to the new RBAC structure.
+Project ownership is authoritative in `Project.owner_id`. `ProjectMember.role`
+stores only `admin` or `member`; the effective project role shown in the product
+is `owner` when `user_id === Project.owner_id`, otherwise the stored project
+membership role.
 
-**Migration Script Required**:
-```sql
--- Map Workspace Roles
-UPDATE "WorkspaceMember" SET role = 'admin' WHERE role IN ('owner', 'admin');
-UPDATE "WorkspaceMember" SET role = 'user' WHERE role IN ('member', 'guest');
+Every project owner and project member must belong to the project workspace.
+Project membership is unique per `(project_id, user_id)`, and ownership transfer
+upserts the new owner as `admin` and preserves the previous owner as `admin`.
 
--- Map Project Roles
-UPDATE "ProjectMember" SET role = 'admin' WHERE role IN ('owner', 'admin');
-UPDATE "ProjectMember" SET role = 'user' WHERE role IN ('editor', 'commenter', 'viewer');
+## Authorization
 
--- Map Team Roles
-UPDATE "TeamMember" SET role = 'admin' WHERE role = 'owner';
-UPDATE "TeamMember" SET role = 'user' WHERE role = 'member';
+Server actions resolve the authenticated user, require the project to be in the
+user's active workspace, resolve that project's membership, and apply the
+central helpers in `src/lib/permissions.ts`. Project members can work on tasks
+within the normal workflow; only the effective owner and project admins can
+change project settings or membership.
+
+## Data normalization
+
+Run the idempotent migration before deploying code that relies on this model:
+
+```sh
+npm run db:normalize-project-members
 ```
 
-## 4. Protected Routes & UI Updates
-The Next.js App Router layout components and pages within `(dashboard)` naturally consume the updated `permissions.ts` utility. Any user without the `admin` role for a workspace or project will no longer see administrative UI components, and the backend server actions will block any unauthorized mutations. 
-
-When a user attempts an unauthorized action, `server-actions.ts` correctly validates the context against their current role and will throw an error that the UI interprets to show a `403 Forbidden` or `401 Unauthorized` state.
-
-## 5. Verification
-The existing features, including project creation, task management, and workspace switching, continue to work correctly under this new unified RBAC model. Privilege escalation has been prevented by enforcing these checks in all mutation `Server Actions`.
+It normalizes legacy workspace roles (`user`, `guest`, and unknown values) to
+`member`, normalizes legacy project roles (`owner`, `editor`, `commenter`, and
+`viewer`) to `admin`/`member`, repairs missing workspace/project owners, removes
+cross-workspace project memberships, enforces unique memberships, and installs
+database role checks. The legacy `run-migration.ts` entry point delegates to
+this same migration.

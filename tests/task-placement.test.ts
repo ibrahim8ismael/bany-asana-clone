@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { resolveTaskPlacement } from "../src/lib/task-placement"
+import { nextTaskPosition, resolveTaskPlacement } from "../src/lib/task-placement"
 
 const clientA = { id: "client-a", workspace_id: "workspace-a" }
 const clientB = { id: "client-b", workspace_id: "workspace-a" }
@@ -64,3 +64,8 @@ test("a project can be inferred from its section without turning the section int
   })
 })
 
+test("new tasks receive the next stable position inside their persisted section", () => {
+  assert.equal(nextTaskPosition(null), 1000)
+  assert.equal(nextTaskPosition(undefined), 1000)
+  assert.equal(nextTaskPosition(2000), 3000)
+})

@@ -21,6 +21,11 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import readline from "node:readline"
 import { PrismaClient, type Prisma } from "@prisma/client"
+import {
+  deterministicMigrationId as deterministicId,
+  getJsonlImportActorIdentity,
+} from "../src/lib/asana-import-identity"
+import { resolveAsanaTaskClientId } from "../src/lib/asana-client-task-mapping"
 
 const prisma = new PrismaClient()
 
@@ -128,15 +133,6 @@ function parseInteger(value: string | null | undefined): number | null {
 
 function sourceStatus(value: string): string {
   return normalizeLookup(value) === "completed" ? "complete" : "incomplete"
-}
-
-function deterministicId(type: string, sourceKey: string): string {
-  const digest = crypto
-    .createHash("sha256")
-    .update(`one-time-migration:${type}:${sourceKey}`)
-    .digest("hex")
-    .slice(0, 24)
-  return `mig_${type}_${digest}`
 }
 
 function placeholderEmail(personImportKey: string): string {
@@ -501,6 +497,49 @@ async function preflight(args: CliArgs) {
   return { workspace, owner }
 }
 
+async function ensureImportActor(workspaceId: string, dryRun: boolean) {
+  const actor = getJsonlImportActorIdentity(workspaceId)
+
+  if (!dryRun) {
+    await prisma.$transaction([
+      prisma.user.upsert({
+        where: { id: actor.id },
+        create: {
+          id: actor.id,
+          full_name: actor.fullName,
+          email: actor.email,
+          password_hash: null,
+          is_super_admin: false,
+          active_workspace_id: workspaceId,
+        },
+        update: {
+          full_name: actor.fullName,
+          email: actor.email,
+          password_hash: null,
+          is_super_admin: false,
+          active_workspace_id: workspaceId,
+        },
+      }),
+      prisma.workspaceMember.upsert({
+        where: {
+          workspace_id_user_id: {
+            workspace_id: workspaceId,
+            user_id: actor.id,
+          },
+        },
+        create: {
+          workspace_id: workspaceId,
+          user_id: actor.id,
+          role: "member",
+        },
+        update: { role: "member" },
+      }),
+    ])
+  }
+
+  return actor
+}
+
 // ---------------------------------------------------------------------------
 // People import
 // ---------------------------------------------------------------------------
@@ -722,7 +761,7 @@ async function importClients(
 }
 
 // ---------------------------------------------------------------------------
-// Task import — NO client_id, project_id, section_id
+// Task import — source projects are represented as direct client work.
 // ---------------------------------------------------------------------------
 
 function buildRecurrenceNote(
@@ -777,8 +816,9 @@ function buildTaskDescription(
 async function importTasks(
   tasks: TaskRecord[],
   workspaceId: string,
-  ownerId: string,
+  importActorId: string,
   personMap: Map<string, string>,
+  clientIdByProjectGid: Map<string, string>,
   recurringTasks: Map<string, RecurringTaskRecord>,
   stats: ImportStats,
   issues: Array<Prisma.ImportIssueCreateManyInput>,
@@ -805,21 +845,21 @@ async function importTasks(
         const position = (parseInteger(task.source_csv_row) || 0) * 1000
         const assigneeKey = normalizeText(task.assignee_person_import_key)
         const assigneeId = assigneeKey ? (personMap.get(assigneeKey) || null) : null
+        const clientId = resolveAsanaTaskClientId(task, clientIdByProjectGid)
 
         const title = normalizeText(task.title) || "Imported task"
         const description = buildTaskDescription(task, recurringTasks)
 
         const common: Prisma.TaskUncheckedUpdateInput = {
           workspace_id: workspaceId,
-          // CRITICAL: All three must be explicitly null
-          client_id: null,
+          client_id: clientId,
           project_id: null,
           section_id: null,
           title,
           description_rich_text: description,
           status,
           assignee_id: assigneeId,
-          creator_id: ownerId,
+          creator_id: importActorId,
           due_date: parseDate(task.due_date),
           completed_at: completedAt,
           task_type: "task",
@@ -865,6 +905,7 @@ async function importTasks(
             const position = (parseInteger(task.source_csv_row) || 0) * 1000
             const assigneeKey = normalizeText(task.assignee_person_import_key)
             const assigneeId = assigneeKey ? (personMap.get(assigneeKey) || null) : null
+            const clientId = resolveAsanaTaskClientId(task, clientIdByProjectGid)
             const title = normalizeText(task.title) || "Imported task"
             const description = buildTaskDescription(task, recurringTasks)
 
@@ -873,7 +914,7 @@ async function importTasks(
               create: {
                 id,
                 workspace_id: workspaceId,
-                client_id: null,
+                client_id: clientId,
                 project_id: null,
                 section_id: null,
                 parent_task_id: null,
@@ -881,7 +922,7 @@ async function importTasks(
                 description_rich_text: description,
                 status,
                 assignee_id: assigneeId,
-                creator_id: ownerId,
+                creator_id: importActorId,
                 due_date: parseDate(task.due_date),
                 completed_at: completedAt,
                 task_type: "task",
@@ -894,14 +935,14 @@ async function importTasks(
               },
               update: {
                 workspace_id: workspaceId,
-                client_id: null,
+                client_id: clientId,
                 project_id: null,
                 section_id: null,
                 title,
                 description_rich_text: description,
                 status,
                 assignee_id: assigneeId,
-                creator_id: ownerId,
+                creator_id: importActorId,
                 due_date: parseDate(task.due_date),
                 completed_at: completedAt,
                 task_type: "task",
@@ -946,7 +987,8 @@ async function importTasks(
 }
 
 // ---------------------------------------------------------------------------
-// Parent link import — NO client/project inheritance
+// Parent link import. Client placement is retained from the task's effective
+// source project; native Project/Section placement remains empty.
 // ---------------------------------------------------------------------------
 
 async function importParentLinks(
@@ -997,9 +1039,6 @@ async function importParentLinks(
             where: { id: childId },
             data: {
               parent_task_id: parentId,
-              // FORBIDDEN: Do NOT inherit client_id, project_id, section_id
-              // Explicitly ensure they stay null
-              client_id: null,
               project_id: null,
               section_id: null,
             },
@@ -1079,19 +1118,17 @@ async function cleanupPreviousImport(
       })
     }
 
-    // 2. Ensure all imported tasks have null associations (batch update)
-    // This is done during the task upsert, but let's do a safety pass
+    // 2. Source projects are Clients in this import mode, so only native
+    // Project/Section placement is cleared. The resolved client_id is retained.
     await prisma.task.updateMany({
       where: {
         id: { in: taskIdArray },
         OR: [
-          { client_id: { not: null } },
           { project_id: { not: null } },
           { section_id: { not: null } },
         ],
       },
       data: {
-        client_id: null,
         project_id: null,
         section_id: null,
       },
@@ -1181,7 +1218,6 @@ async function cleanupPreviousImport(
       where: {
         id: { in: taskIdArray },
         OR: [
-          { client_id: { not: null } },
           { project_id: { not: null } },
           { section_id: { not: null } },
         ],
@@ -1193,7 +1229,7 @@ async function cleanupPreviousImport(
         import_run_id: importRunId,
         severity: "info",
         code: "DRY_RUN_WOULD_CLEAN",
-        message: `Would clear associations from ${wrongAssocCount} previously imported tasks.`,
+        message: `Would clear Project/Section placement from ${wrongAssocCount} previously imported tasks while retaining Client placement.`,
       })
     }
   }
@@ -1209,7 +1245,8 @@ async function validateImport(
   stats: ImportStats,
   issues: Array<Prisma.ImportIssueCreateManyInput>,
   importRunId: string,
-  dryRun: boolean
+  dryRun: boolean,
+  expectedClientTaskCount: number,
 ) {
   if (dryRun) {
     console.log("\n  [DRY RUN] Skipping database validation")
@@ -1219,11 +1256,10 @@ async function validateImport(
   const taskIdArray = Array.from(importedTaskIds)
 
   // Task validation
-  const invalidAssociationCount = await prisma.task.count({
+  const invalidPlacementCount = await prisma.task.count({
     where: {
       id: { in: taskIdArray },
       OR: [
-        { client_id: { not: null } },
         { project_id: { not: null } },
         { section_id: { not: null } },
       ],
@@ -1236,21 +1272,24 @@ async function validateImport(
 
   console.log("\n=== VALIDATION RESULTS ===")
   console.log(`  Imported tasks: ${importedTaskIds.size}`)
-  console.log(`  Tasks with client_id != null: ${invalidAssociationCount}`)
+  const clientTaskCount = await prisma.task.count({
+    where: { id: { in: taskIdArray }, client_id: { not: null } },
+  })
+  console.log(`  Tasks with client_id != null: ${clientTaskCount} (expected ${expectedClientTaskCount})`)
   console.log(`  Tasks with project_id != null: ${await prisma.task.count({ where: { id: { in: taskIdArray }, project_id: { not: null } } })}`)
   console.log(`  Tasks with section_id != null: ${await prisma.task.count({ where: { id: { in: taskIdArray }, section_id: { not: null } } })}`)
   console.log(`  TaskProjectLink records for imported tasks: ${invalidLinkCount}`)
 
-  if (invalidAssociationCount > 0 || invalidLinkCount > 0) {
+  if (invalidPlacementCount > 0 || invalidLinkCount > 0 || clientTaskCount !== expectedClientTaskCount) {
     issues.push({
       import_run_id: importRunId,
       severity: "error",
       code: "VALIDATION_FAILED",
-      message: `Post-import validation failed: ${invalidAssociationCount} tasks have invalid associations, ${invalidLinkCount} task-project links exist.`,
+      message: `Post-import validation failed: ${invalidPlacementCount} tasks have invalid Project/Section placement, ${invalidLinkCount} task-project links exist, and ${clientTaskCount}/${expectedClientTaskCount} tasks have expected Client placement.`,
     })
     console.error("  ❌ VALIDATION FAILED!")
   } else {
-    console.log("  ✅ All imported tasks have null client_id, project_id, section_id")
+    console.log("  ✅ Imported tasks have the expected Client placement and no native Project/Section placement")
     console.log("  ✅ No TaskProjectLink records for imported tasks")
   }
 
@@ -1261,7 +1300,7 @@ async function validateImport(
   console.log(`  Source-backed clients: ${importedClientCount}`)
   console.log(`  Expected: ${projectGids.length}`)
 
-  // Verify no imported tasks are connected to imported clients
+  // Verify imported tasks are connected to the source-backed Clients.
   const clientIds = projectGids.map((gid) => deterministicId("asana-client", gid))
   const tasksOnClients = await prisma.task.count({
     where: {
@@ -1400,7 +1439,8 @@ async function main() {
       `  Created: ${stats.clientsCreated}, Updated: ${stats.clientsUpdated}, Failed: ${stats.clientsFailed}`
     )
 
-    // Phase 3: Tasks (NO associations)
+    // Phase 3: Tasks. Source project membership resolves to direct Client work;
+    // native Project/Section placement stays null in this import mode.
     console.log("\n--- Phase: Tasks ---")
     if (!args.dryRun) {
       await prisma.importRun.update({
@@ -1408,11 +1448,13 @@ async function main() {
         data: { phase: "tasks" },
       })
     }
+    const importActor = await ensureImportActor(workspace.id, args.dryRun)
     const importedTaskIds = await importTasks(
       data.tasks,
       workspace.id,
-      owner.id,
+      importActor.id,
       personMap,
+      clientMap,
       data.recurringTasks,
       stats,
       issues,
@@ -1424,7 +1466,8 @@ async function main() {
       `  Created/Updated: ${stats.tasksCreated}, Failed: ${stats.tasksFailed}`
     )
 
-    // Phase 4: Parent links (NO inheritance)
+    // Phase 4: Parent links. Client placement was resolved from each task's
+    // effective primary source project before the hierarchy is connected.
     console.log("\n--- Phase: Parent Links ---")
     if (!args.dryRun) {
       await prisma.importRun.update({
@@ -1500,7 +1543,8 @@ async function main() {
       stats,
       issues,
       importRunId,
-      args.dryRun
+      args.dryRun,
+      data.tasks.filter((task) => resolveAsanaTaskClientId(task, clientMap)).length,
     )
 
     // Write issues

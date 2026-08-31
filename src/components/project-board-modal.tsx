@@ -34,6 +34,8 @@ function formatProjectActivity(activity: any) {
       return `${actor} added ${meta?.memberName ? `${meta.memberName} ` : "a member "}to the project${meta?.to ? ` as ${meta.to}` : ""}`
     case "project_member_role_changed":
       return `${actor} changed ${meta?.memberName ? `${meta.memberName}'s` : "a member's"} role${meta?.to ? ` to ${meta.to}` : ""}`
+    case "project_owner_transferred":
+      return `${actor} transferred project ownership${meta?.toName ? ` to ${meta.toName}` : ""}`
     case "project_member_removed":
       return `${actor} removed ${meta?.memberName ? meta.memberName : "a member"} from the project`
     case "section_created":
@@ -81,6 +83,8 @@ export default function ProjectBoardModal({
   const [activities, setActivities] = useState<any[]>([])
   const [memberManagement, setMemberManagement] = useState<ProjectMemberManagementData>({
     canManage: false,
+    canTransferOwnership: false,
+    ownerId: null,
     members: [],
     workspaceMembers: [],
   })
@@ -272,6 +276,7 @@ export default function ProjectBoardModal({
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
               <input
                 value={nameDraft}
+                disabled={loadingMembers || !memberManagement.canManage || savingName}
                 onChange={(event) => setNameDraft(event.target.value)}
                 onBlur={() => void handleSaveName()}
                 onKeyDown={(event) => {
@@ -294,7 +299,7 @@ export default function ProjectBoardModal({
                 {project.status === "in_progress" ? "In Progress" : project.status}
               </span>
             </div>
-            <div className="mt-2 text-xs text-white/30">{savingName ? "Saving name..." : "Click the project name to rename it."}</div>
+            <div className="mt-2 text-xs text-white/30">{savingName ? "Saving name..." : memberManagement.canManage ? "Click the project name to rename it." : "Only project admins can change project settings."}</div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -318,6 +323,7 @@ export default function ProjectBoardModal({
                     <input
                       type="date"
                       value={deadlineDraft}
+                      disabled={loadingMembers || !memberManagement.canManage || savingDeadline}
                       onChange={(event) => {
                         const nextValue = event.target.value
                         setDeadlineDraft(nextValue)
@@ -339,6 +345,7 @@ export default function ProjectBoardModal({
               <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/25">Project Description</div>
               <textarea
                 value={descriptionDraft}
+                disabled={loadingMembers || !memberManagement.canManage || savingDescription}
                 onChange={(event) => setDescriptionDraft(event.target.value)}
                 onBlur={() => void handleSaveDescription()}
                 placeholder="Write what this project is about, deliverables, scope, and expectations."
@@ -367,7 +374,7 @@ export default function ProjectBoardModal({
                         {(provided, snapshot) => (
                           <div ref={provided.innerRef} {...provided.droppableProps} className={`flex-1 space-y-3 p-4 ${snapshot.isDraggingOver ? "bg-white/[0.03]" : ""}`}>
                             {column.tasks.map((task: any, index: number) => (
-                              <Draggable key={task.id} draggableId={task.id} index={index} disableInteractiveElementBlocking isDragDisabled={!TASK_WORKFLOW_STAGES.some((stage) => stage.id !== task.status && !validateManualTaskTransition({ from: task.status, to: stage.id, qualityRequired: Boolean(task.quality_required), qualityState: task.quality_state || "not_required" }))}>
+                              <Draggable key={task.id} draggableId={task.id} index={index} disableInteractiveElementBlocking isDragDisabled={!memberManagement.canManage || !TASK_WORKFLOW_STAGES.some((stage) => stage.id !== task.status && !validateManualTaskTransition({ from: task.status, to: stage.id, qualityRequired: Boolean(task.quality_required), qualityState: task.quality_state || "not_required" }))}>
                                 {(draggableProvided, draggableSnapshot) => (
                                   <div ref={draggableProvided.innerRef} {...draggableProvided.draggableProps} {...draggableProvided.dragHandleProps} style={draggableProvided.draggableProps.style}>
                                     <button onClick={() => onOpenTask(task)} className={`w-full rounded-2xl border border-white/5 bg-[#252628] px-4 py-3 text-left transition-colors ${draggableSnapshot.isDragging ? "rotate-1 border-white/20 shadow-2xl" : "hover:bg-[#2c2d2f]"}`}>
@@ -448,7 +455,7 @@ export default function ProjectBoardModal({
                   initialPolicy={(project.quality_policy || "off") as "off" | "optional" | "required"}
                   initialDefaultReviewerId={project.default_reviewer_id || null}
                   initialReviewSlaDays={project.review_sla_days || 1}
-                  reviewers={memberManagement.workspaceMembers}
+                  reviewers={memberManagement.members.map((membership) => membership.user)}
                   canManage={memberManagement.canManage}
                   onSaved={(settings) => {
                     onProjectUpdated({
@@ -474,6 +481,8 @@ export default function ProjectBoardModal({
                 <ProjectMembersManager
                   projectId={project.id}
                   canManage={memberManagement.canManage}
+                  canTransferOwnership={memberManagement.canTransferOwnership}
+                  ownerId={memberManagement.ownerId}
                   members={memberManagement.members}
                   workspaceMembers={memberManagement.workspaceMembers}
                   layout="compact"

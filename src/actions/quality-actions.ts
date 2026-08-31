@@ -1,5 +1,6 @@
 "use server"
 
+import { Prisma } from "@prisma/client"
 import { addBusinessDays, startOfDay } from "date-fns"
 import { getServerSession } from "next-auth"
 import { revalidatePath } from "next/cache"
@@ -12,16 +13,22 @@ import {
   getAccessibleTaskContext,
 } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
+import { isWorkspaceRole } from "@/lib/project-membership"
 import { deriveProjectCompletionStatus } from "@/lib/workflow"
 import {
+  buildQualitySubmissionTaskUpdate,
   calculateGradeKpiScore,
   buildQualityDecisionTaskUpdate,
   issueAffectsQualityScore,
   QUALITY_GRADE_CONFIG,
   QUALITY_GRADES,
   QUALITY_ISSUE_REASONS,
+  PROJECT_QUALITY_POLICIES,
+  validateQualityReviewTransition,
+  validateQualitySubmissionTransition,
   type QualityGrade,
   type QualityIssueReason,
+  type ProjectQualityPolicy,
 } from "@/lib/quality"
 
 type GradeReviewInput = {
@@ -30,9 +37,6 @@ type GradeReviewInput = {
   reviewNote?: string
   reworkDueDate?: string | null
 }
-
-const PROJECT_QUALITY_POLICIES = ["off", "optional", "required"] as const
-type ProjectQualityPolicy = (typeof PROJECT_QUALITY_POLICIES)[number]
 
 async function getSessionUserId() {
   const session = await getServerSession(authOptions)
@@ -77,17 +81,28 @@ function effectiveTaskPolicy(task: {
   return PROJECT_QUALITY_POLICIES.includes(policy as ProjectQualityPolicy) ? policy as ProjectQualityPolicy : "off"
 }
 
-async function eligibleReviewer(userId: string, workspaceId: string) {
+async function eligibleReviewer(userId: string, workspaceId: string, projectId?: string | null) {
   if (!userId) return null
-  const membership = await prisma.workspaceMember.findUnique({
-    where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
-    select: { role: true, user: { select: USER_PUBLIC_SELECT } },
-  })
-  return membership && membership.role !== "guest" ? membership.user : null
+  const [workspaceMembership, projectMembership] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+      select: { role: true, user: { select: USER_PUBLIC_SELECT } },
+    }),
+    projectId
+      ? prisma.projectMember.findUnique({
+          where: { project_id_user_id: { project_id: projectId, user_id: userId } },
+          select: { role: true },
+        })
+      : Promise.resolve(null),
+  ])
+  if (!workspaceMembership || !isWorkspaceRole(workspaceMembership.role)) return null
+  if (projectId && !projectMembership) return null
+  return workspaceMembership.user
 }
 
 async function resolveReviewer(task: {
   workspace_id: string
+  project_id: string | null
   assignee_id: string | null
   creator_id: string
   reviewer_id: string | null
@@ -98,7 +113,7 @@ async function resolveReviewer(task: {
 
   for (const candidateId of [...new Set(candidates.filter(Boolean))] as string[]) {
     if (candidateId === submitterId) continue
-    const reviewer = await eligibleReviewer(candidateId, task.workspace_id)
+    const reviewer = await eligibleReviewer(candidateId, task.workspace_id, task.project_id)
     if (reviewer) return reviewer
   }
 
@@ -112,6 +127,7 @@ function revalidateQualityPaths(task: { project_id: string | null; client_id: st
   revalidatePath("/reporting")
   revalidatePath("/inbox")
   revalidatePath("/(dashboard)", "layout")
+  revalidatePath("/", "layout")
 
   if (task.project_id) {
     revalidatePath(`/projects/${task.project_id}/list`)
@@ -148,9 +164,19 @@ async function notifyUser({
   })
 }
 
-async function syncProjectCompletion(projectId: string | null, actorId: string) {
-  if (!projectId) return
-  const project = await prisma.project.findUnique({
+type ProjectCompletionChange = {
+  projectId: string
+  workspaceId: string
+  from: string
+  to: string
+}
+
+async function syncProjectCompletionInTransaction(
+  tx: Prisma.TransactionClient,
+  projectId: string | null
+): Promise<ProjectCompletionChange | null> {
+  if (!projectId) return null
+  const project = await tx.project.findUnique({
     where: { id: projectId },
     select: {
       id: true,
@@ -159,22 +185,32 @@ async function syncProjectCompletion(projectId: string | null, actorId: string) 
       tasks: { where: { archived: false }, select: { status: true } },
     },
   })
-  if (!project) return
+  if (!project) return null
 
   const nextStatus = deriveProjectCompletionStatus(
     project.status,
     project.tasks.map((task) => task.status)
   )
-  if (nextStatus === project.status) return
+  if (nextStatus === project.status) return null
 
-  await prisma.project.update({ where: { id: project.id }, data: { status: nextStatus } })
-  await logActivity({
+  await tx.project.update({ where: { id: project.id }, data: { status: nextStatus } })
+  return {
+    projectId: project.id,
     workspaceId: project.workspace_id,
+    from: project.status,
+    to: nextStatus,
+  }
+}
+
+async function logProjectCompletionChange(change: ProjectCompletionChange | null, actorId: string) {
+  if (!change) return
+  await logActivity({
+    workspaceId: change.workspaceId,
     actorId,
     entityType: "project",
-    entityId: project.id,
+    entityId: change.projectId,
     action: "project_status_changed",
-    meta: { source: "automatic", from: project.status, to: nextStatus },
+    meta: { source: "automatic", from: change.from, to: change.to },
   })
 }
 
@@ -240,6 +276,17 @@ async function loadTaskQuality(taskId: string, userId: string) {
   ])
   const submitterId = task.assignee_id || task.creator_id
   const policy = effectiveTaskPolicy(task)
+  const submissionError = validateQualitySubmissionTransition({
+    status: task.status,
+    qualityState: task.quality_state,
+    effectivePolicy: policy,
+  })
+  const pendingReviewCount = task.quality_reviews.filter((review) => review.status === "pending").length
+  const reviewError = validateQualityReviewTransition({
+    status: task.status,
+    qualityState: task.quality_state,
+    pendingReviewCount,
+  })
 
   return {
     task,
@@ -248,11 +295,8 @@ async function loadTaskQuality(taskId: string, userId: string) {
     permissions: {
       isSubmitter: userId === submitterId,
       canAssignReviewer: canAssign && !task.quality_state.startsWith("approved"),
-      canSubmit: userId === submitterId
-        && policy !== "off"
-        && ["not_required", "ready", "needs_rework"].includes(task.quality_state)
-        && task.status !== "complete",
-      canReview: canReview && task.quality_state === "submitted",
+      canSubmit: userId === submitterId && submissionError === null,
+      canReview: canReview && reviewError === null,
     },
   }
 }
@@ -276,7 +320,9 @@ export async function assignTaskReviewer(taskId: string, reviewerId: string) {
     if (!await canAssignTaskReviewer(userId, task)) return { error: "You cannot reassign this review" }
     if (task.quality_state.startsWith("approved")) return { error: "Approved reviews cannot be reassigned" }
     if (reviewerId === (task.assignee_id || task.creator_id)) return { error: "The assignee cannot review their own work" }
-    if (!await eligibleReviewer(reviewerId, task.workspace_id)) return { error: "Reviewer must be an active workspace member" }
+    if (!await eligibleReviewer(reviewerId, task.workspace_id, task.project_id)) {
+      return { error: task.project_id ? "Reviewer must be a project member" : "Reviewer must be an active workspace member" }
+    }
 
     const previousReviewerId = task.reviewer_id
     await prisma.$transaction(async (tx) => {
@@ -341,8 +387,12 @@ export async function submitTaskForReview(taskId: string, input: { submissionNot
     if (!task) return { error: "Not found" }
     const submitterId = task.assignee_id || task.creator_id
     if (submitterId !== userId) return { error: "Only the assignee can submit this task" }
-    if (effectiveTaskPolicy(task) === "off") return { error: "Quality review is off for this task" }
-    if (!["not_required", "ready", "needs_rework"].includes(task.quality_state)) return { error: "Task is not ready to submit" }
+    const submissionError = validateQualitySubmissionTransition({
+      status: task.status,
+      qualityState: task.quality_state,
+      effectivePolicy: effectiveTaskPolicy(task),
+    })
+    if (submissionError) return { error: submissionError }
 
     const reviewer = await resolveReviewer(task)
     if (!reviewer) return { error: "No independent reviewer is available. Ask a project admin to set the default reviewer." }
@@ -350,15 +400,69 @@ export async function submitTaskForReview(taskId: string, input: { submissionNot
     const submissionNote = input.submissionNote?.trim() || null
     if (submissionNote && submissionNote.length > 2_000) return { error: "Submission note is too long" }
 
-    const now = new Date()
-    const cycleNumber = task.review_cycle_count + 1
-    const slaDays = Math.min(Math.max(task.project?.review_sla_days || 1, 1), 30)
-    const reviewDueAt = addBusinessDays(now, slaDays)
+    const submission = await prisma.$transaction(async (tx) => {
+      const currentTask = await tx.task.findUnique({
+        where: { id: task.id },
+        include: { project: { select: { quality_policy: true, default_reviewer_id: true, review_sla_days: true } } },
+      })
+      if (!currentTask) throw new Error("Task no longer exists")
+      if ((currentTask.assignee_id || currentTask.creator_id) !== userId) {
+        throw new Error("Only the assignee can submit this task")
+      }
 
-    await prisma.$transaction(async (tx) => {
+      const currentSubmissionError = validateQualitySubmissionTransition({
+        status: currentTask.status,
+        qualityState: currentTask.quality_state,
+        effectivePolicy: effectiveTaskPolicy(currentTask),
+      })
+      if (currentSubmissionError) throw new Error(currentSubmissionError)
+
+      const pendingReviewCount = await tx.taskQualityReview.count({
+        where: { task_id: currentTask.id, status: "pending" },
+      })
+      if (pendingReviewCount > 0) throw new Error("This task already has a pending quality review")
+
+      const [reviewerWorkspaceMembership, reviewerProjectMembership] = await Promise.all([
+        tx.workspaceMember.findUnique({
+          where: {
+            workspace_id_user_id: {
+              workspace_id: currentTask.workspace_id,
+              user_id: reviewer.id,
+            },
+          },
+          select: { id: true },
+        }),
+        currentTask.project_id
+          ? tx.projectMember.findUnique({
+              where: {
+                project_id_user_id: {
+                  project_id: currentTask.project_id,
+                  user_id: reviewer.id,
+                },
+              },
+              select: { id: true },
+            })
+          : Promise.resolve(null),
+      ])
+      if (!reviewerWorkspaceMembership || (currentTask.project_id && !reviewerProjectMembership)) {
+        throw new Error("The selected reviewer is no longer eligible for this task")
+      }
+
+      const now = new Date()
+      const cycleNumber = currentTask.review_cycle_count + 1
+      const slaDays = Math.min(Math.max(currentTask.project?.review_sla_days || 1, 1), 30)
+      const reviewDueAt = addBusinessDays(now, slaDays)
+      const taskUpdate = buildQualitySubmissionTaskUpdate({
+        reviewerId: reviewer.id,
+        now,
+        firstSubmittedAt: currentTask.first_submitted_at,
+        originalDueDate: currentTask.original_due_date,
+        dueDate: currentTask.due_date,
+      })
+
       await tx.taskQualityReview.create({
         data: {
-          task_id: task.id,
+          task_id: currentTask.id,
           cycle_number: cycleNumber,
           submission_note: submissionNote,
           submitted_by_id: userId,
@@ -368,35 +472,38 @@ export async function submitTaskForReview(taskId: string, input: { submissionNot
         },
       })
       await tx.task.update({
-        where: { id: task.id },
-        data: {
-          status: "submitted_for_review",
-          quality_required: true,
-          quality_state: "submitted",
-          reviewer_id: reviewer.id,
-          first_submitted_at: task.first_submitted_at || now,
-          original_due_date: task.first_submitted_at ? task.original_due_date : task.due_date,
-          rework_due_date: null,
-          completed_at: null,
-          review_cycle_count: { increment: 1 },
-        },
+        where: { id: currentTask.id },
+        data: taskUpdate,
       })
-    })
+      const projectCompletionChange = await syncProjectCompletionInTransaction(tx, currentTask.project_id)
 
-    await syncProjectCompletion(task.project_id, userId)
+      return {
+        cycleNumber,
+        reviewDueAt,
+        firstSubmittedAt: currentTask.first_submitted_at || now,
+        projectCompletionChange,
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+
+    await logProjectCompletionChange(submission.projectCompletionChange, userId)
     await logActivity({
       workspaceId: task.workspace_id,
       actorId: userId,
       entityType: "task",
       entityId: task.id,
-      action: cycleNumber === 1 ? "quality_submitted" : "quality_resubmitted",
-      meta: { source: "manual", cycleNumber, reviewerId: reviewer.id, reviewDueAt: reviewDueAt.toISOString() },
+      action: submission.cycleNumber === 1 ? "quality_submitted" : "quality_resubmitted",
+      meta: {
+        source: "manual",
+        cycleNumber: submission.cycleNumber,
+        reviewerId: reviewer.id,
+        reviewDueAt: submission.reviewDueAt.toISOString(),
+      },
     })
     await notifyUser({
       userId: reviewer.id,
       actorId: userId,
       title: "Review required",
-      body: `${task.title} is ready for your review by ${reviewDueAt.toLocaleDateString()}.`,
+      body: `${task.title} is ready for your review by ${submission.reviewDueAt.toLocaleDateString()}.`,
       taskId: task.id,
     })
 
@@ -410,7 +517,7 @@ export async function submitTaskForReview(taskId: string, input: { submissionNot
         quality_required: true,
         quality_state: "submitted",
         reviewer_id: reviewer.id,
-        first_submitted_at: task.first_submitted_at || now,
+        first_submitted_at: submission.firstSubmittedAt,
         rework_due_date: null,
       },
     } : { error: "Not found" }
@@ -433,7 +540,12 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
     })
     if (!task) return { error: "Not found" }
     if (!await canReviewQualityTask(userId, task)) return { error: "Only the assigned reviewer or a project admin can review this task" }
-    if (task.quality_state !== "submitted" || task.quality_reviews.length !== 1) return { error: "There is no pending review" }
+    const reviewTransitionError = validateQualityReviewTransition({
+      status: task.status,
+      qualityState: task.quality_state,
+      pendingReviewCount: task.quality_reviews.length,
+    })
+    if (reviewTransitionError) return { error: reviewTransitionError }
     if (!QUALITY_GRADES.includes(input.grade)) return { error: "Choose a valid quality grade" }
 
     const gradeConfig = QUALITY_GRADE_CONFIG[input.grade]
@@ -455,30 +567,50 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
     if (reviewNote && reviewNote.length > 2_000) return { error: "Review note is too long" }
 
     const affectsScore = needsRework && findings.some((finding) => issueAffectsQualityScore(finding.reason))
-    const nextReworkCount = task.rework_count + (affectsScore ? 1 : 0)
-    const firstAccountableGrade = task.first_quality_grade as QualityGrade | null
-      || (!needsRework || affectsScore ? input.grade : null)
-    const taskKpiScore = firstAccountableGrade
-      ? calculateGradeKpiScore(firstAccountableGrade, nextReworkCount)
-      : null
-    const nextBlockerCount = task.quality_blocker_count + (input.grade === "major_rework" && affectsScore ? 1 : 0)
     const outcome = gradeConfig.decision
-    const now = new Date()
-    const review = task.quality_reviews[0]
-    const taskDecisionUpdate = buildQualityDecisionTaskUpdate({
-      outcome,
-      now,
-      reworkDueDate,
-      firstAccountableGrade,
-      finalGrade: input.grade,
-      qualityScore: taskKpiScore,
-      reworkCount: nextReworkCount,
-      blockerCount: nextBlockerCount,
-    })
+    const decision = await prisma.$transaction(async (tx) => {
+      const currentTask = await tx.task.findUnique({
+        where: { id: task.id },
+        include: {
+          quality_reviews: {
+            where: { status: "pending" },
+            orderBy: { cycle_number: "desc" },
+            take: 2,
+          },
+        },
+      })
+      if (!currentTask) throw new Error("Task no longer exists")
 
-    await prisma.$transaction(async (tx) => {
+      const currentReviewError = validateQualityReviewTransition({
+        status: currentTask.status,
+        qualityState: currentTask.quality_state,
+        pendingReviewCount: currentTask.quality_reviews.length,
+      })
+      if (currentReviewError) throw new Error(currentReviewError)
+
+      const now = new Date()
+      const currentReview = currentTask.quality_reviews[0]
+      const nextReworkCount = currentTask.rework_count + (affectsScore ? 1 : 0)
+      const firstAccountableGrade = currentTask.first_quality_grade as QualityGrade | null
+        || (!needsRework || affectsScore ? input.grade : null)
+      const taskKpiScore = firstAccountableGrade
+        ? calculateGradeKpiScore(firstAccountableGrade, nextReworkCount)
+        : null
+      const nextBlockerCount = currentTask.quality_blocker_count
+        + (input.grade === "major_rework" && affectsScore ? 1 : 0)
+      const taskDecisionUpdate = buildQualityDecisionTaskUpdate({
+        outcome,
+        now,
+        reworkDueDate,
+        firstAccountableGrade,
+        finalGrade: input.grade,
+        qualityScore: taskKpiScore,
+        reworkCount: nextReworkCount,
+        blockerCount: nextBlockerCount,
+      })
+
       await tx.taskQualityReview.update({
-        where: { id: review.id },
+        where: { id: currentReview.id },
         data: {
           status: outcome,
           grade: input.grade,
@@ -499,12 +631,23 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
         },
       })
       await tx.task.update({
-        where: { id: task.id },
+        where: { id: currentTask.id },
         data: taskDecisionUpdate,
       })
-    })
+      const projectCompletionChange = await syncProjectCompletionInTransaction(tx, currentTask.project_id)
 
-    await syncProjectCompletion(task.project_id, userId)
+      return {
+        now,
+        cycleNumber: currentReview.cycle_number,
+        nextReworkCount,
+        firstAccountableGrade,
+        taskKpiScore,
+        nextBlockerCount,
+        projectCompletionChange,
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+
+    await logProjectCompletionChange(decision.projectCompletionChange, userId)
     await logActivity({
       workspaceId: task.workspace_id,
       actorId: userId,
@@ -513,10 +656,10 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
       action: needsRework ? "quality_rework_requested" : "quality_approved",
       meta: {
         source: "manual",
-        cycleNumber: review.cycle_number,
+        cycleNumber: decision.cycleNumber,
         grade: input.grade,
         gradeScore: gradeConfig.score,
-        qualityScore: taskKpiScore,
+        qualityScore: decision.taskKpiScore,
         affectsScore,
         reworkDueDate: reworkDueDate?.toISOString() || null,
       },
@@ -531,7 +674,7 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
       taskId: task.id,
     })
 
-    if (needsRework && nextReworkCount >= 2) {
+    if (needsRework && decision.nextReworkCount >= 2) {
       const ownerId = task.project_id
         ? (await prisma.project.findUnique({ where: { id: task.project_id }, select: { owner_id: true } }))?.owner_id || null
         : (await prisma.workspace.findUnique({ where: { id: task.workspace_id }, select: { owner_id: true } }))?.owner_id || null
@@ -539,7 +682,7 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
         userId: ownerId,
         actorId: userId,
         title: "Repeated quality rework needs attention",
-        body: `${task.title} has reached ${nextReworkCount} scored rework cycles.`,
+        body: `${task.title} has reached ${decision.nextReworkCount} scored rework cycles.`,
         taskId: task.id,
       })
     }
@@ -552,14 +695,14 @@ export async function reviewTaskQualityGrade(taskId: string, input: GradeReviewI
       taskUpdate: {
         status: needsRework ? "needs_rework" : "complete",
         quality_state: outcome,
-        quality_score: taskKpiScore,
-        first_quality_grade: firstAccountableGrade,
+        quality_score: decision.taskKpiScore,
+        first_quality_grade: decision.firstAccountableGrade,
         final_quality_grade: needsRework ? null : input.grade,
         rework_due_date: needsRework ? reworkDueDate : null,
-        completed_at: needsRework ? null : now,
-        approved_at: needsRework ? null : now,
-        rework_count: nextReworkCount,
-        quality_blocker_count: nextBlockerCount,
+        completed_at: needsRework ? null : decision.now,
+        approved_at: needsRework ? null : decision.now,
+        rework_count: decision.nextReworkCount,
+        quality_blocker_count: decision.nextBlockerCount,
       },
     } : { error: "Not found" }
   } catch (error) {
@@ -586,10 +729,10 @@ export async function getProjectQualitySettings(projectId: string) {
       },
     }),
     getAccessibleProjectContext(userId, projectId, "manage"),
-    prisma.workspaceMember.findMany({
-      where: { workspace_id: projectAccess.workspace_id, role: { not: "guest" } },
+    prisma.projectMember.findMany({
+      where: { project_id: projectId, role: { in: ["admin", "member"] } },
       select: { user: { select: USER_PUBLIC_SELECT } },
-      orderBy: { joined_at: "asc" },
+      orderBy: { user: { full_name: "asc" } },
     }),
   ])
   if (!project) return { error: "Not found" }
@@ -619,8 +762,8 @@ export async function updateProjectQualitySettings(projectId: string, input: {
     if (input.policy === "required" && !input.defaultReviewerId) {
       return { error: "Required review needs a default reviewer for tasks created by their assignee" }
     }
-    if (input.defaultReviewerId && !await eligibleReviewer(input.defaultReviewerId, project.workspace_id)) {
-      return { error: "Default reviewer must be an active workspace member" }
+    if (input.defaultReviewerId && !await eligibleReviewer(input.defaultReviewerId, project.workspace_id, project.id)) {
+      return { error: "Default reviewer must be a project member" }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -652,6 +795,7 @@ export async function updateProjectQualitySettings(projectId: string, input: {
     revalidatePath("/clients")
     revalidatePath("/my-tasks")
     revalidatePath("/(dashboard)", "layout")
+    revalidatePath("/", "layout")
     return { success: true }
   } catch (error) {
     console.error("Failed to update project quality settings:", error)

@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { canAccessWorkspace, isSuperAdminUser } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
+import { isWorkspaceAdmin } from "@/lib/project-membership"
 
 function normalizeWorkspaceName(value: unknown) {
   if (typeof value !== "string") return null
@@ -126,7 +127,7 @@ export async function renameWorkspace(data: { workspaceId: string; name: string 
 
     if (!workspace) return { error: "Workspace not found" }
     const role = workspace.members[0]?.role
-    if (!superAdmin && workspace.owner_id !== userId && role !== "owner" && role !== "admin") {
+    if (!superAdmin && workspace.owner_id !== userId && !isWorkspaceAdmin(role)) {
       return { error: "Workspace admin access required" }
     }
 

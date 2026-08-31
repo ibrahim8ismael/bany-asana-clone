@@ -1,14 +1,15 @@
 FROM node:20-alpine AS base
-RUN apk add --no-cache openssl libc6-compat
 WORKDIR /app
 
 FROM base AS deps
+RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund && npm cache clean --force
 
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
+RUN apk add --no-cache openssl libc6-compat
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
@@ -24,22 +25,27 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Build the Next.js app
 RUN npm run build
 
-# Production image, copy all the files and run next
 FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+ENV NODE_OPTIONS=--max-old-space-size=384
 
-# Copy necessary files for runtime
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+RUN apk add --no-cache openssl \
+  && addgroup --system --gid 1001 nodejs \
+  && adduser --system --uid 1001 nextjs
 
-# Start command
-# Gets keys from the env (DATABASE_URL, NEXTAUTH_SECRET, etc)
-# Syncs schema to the DB then starts the app
-CMD sh -c 'npx prisma db push && npm run start'
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+RUN mkdir -p /app/public/uploads && chown -R nextjs:nodejs /app/public/uploads
+
+USER nextjs
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

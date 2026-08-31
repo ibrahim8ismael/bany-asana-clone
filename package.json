@@ -15,8 +15,14 @@
     "db:push": "prisma db push",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
+    "db:normalize-project-members": "tsx scripts/normalize-project-member-roles.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:import:asana": "tsx scripts/import-asana-package.ts",
+    "db:import:asana-jsonl": "tsx scripts/import-asana-jsonl.ts",
+    "db:repair:asana-jsonl-ownership": "tsx scripts/repair-asana-jsonl-ownership.ts",
+    "db:repair:asana-jsonl-client-tasks": "tsx scripts/repair-asana-jsonl-client-tasks.ts",
+    "audit:client-tasks": "tsx scripts/audit-client-tasks.ts",
+    "deploy:production": "./scripts/deploy-production.sh",
     "skills:build": "node scripts/build-skills-manifest.mjs"
   },
   "dependencies": {
