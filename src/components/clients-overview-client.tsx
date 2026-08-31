@@ -745,368 +745,97 @@ export default function ClientsOverviewClient({ initialClients }: { initialClien
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-[#131316] p-6 lg:p-10 custom-scrollbar">
-              <div className="mx-auto max-w-6xl space-y-12">
-                {actionError ? (
-                  <div className="flex items-center gap-3 rounded-lg border border-rose-500/20 bg-rose-500/10 p-4 text-sm font-medium text-rose-300">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/20"><Trash2 className="h-3 w-3 text-rose-400" /></div>
-                    {actionError}
-                  </div>
-                ) : null}
-                {actionNotice ? (
-                  <div className="flex items-center gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm font-medium text-emerald-300">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20"><CheckCircle2 className="h-3 w-3 text-emerald-400" /></div>
-                    {actionNotice}
-                  </div>
-                ) : null}
-
-                <section aria-labelledby="client-tasks-heading">
-                  <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
-                    <div>
-                      <h2 id="client-tasks-heading" className="text-xl font-semibold tracking-tight text-white">Tasks</h2>
-                      <p className="mt-1 text-sm text-[#a1a1aa]">Direct work and tasks across every project belonging to {activeClient.name}</p>
-                    </div>
-                    <label className="block">
-                      <span className="sr-only">Search client tasks</span>
-                      <input
-                        value={clientTaskSearch}
-                        onChange={(event) => {
-                          setClientTaskSearch(event.target.value)
-                          setClientTaskPage(1)
-                        }}
-                        placeholder="Search client tasks"
-                        className="h-9 w-64 max-w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-xs text-white outline-none placeholder:text-[#71717a] focus:border-[#0075de]"
-                      />
-                    </label>
-                  </div>
-
-                  <div className="overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b]">
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#27272a] px-4 py-3">
-                      <div role="tablist" aria-label="Client task archive state" className="flex rounded-lg border border-[#3f3f46] bg-[#131316] p-1">
-                        {(["active", "archived"] as const).map((scope) => (
-                          <button
-                            key={scope}
-                            type="button"
-                            role="tab"
-                            aria-selected={clientTaskScope === scope}
-                            onClick={() => {
-                              setClientTaskScope(scope)
-                              setClientTaskPage(1)
-                            }}
-                            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${clientTaskScope === scope ? "bg-[#27272a] text-white" : "text-[#a1a1aa] hover:text-white"}`}
-                          >
-                            {scope === "active" ? "Active tasks" : "Archived tasks"} ({clientTaskData?.counts?.[scope] ?? "…"})
-                          </button>
-                        ))}
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+              <aside className="border-b border-[#3f3f46] bg-[#1d1d20] p-4 lg:overflow-y-auto lg:border-b-0 lg:border-r custom-scrollbar">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#71717a]">Projects</h2>
+                  <button onClick={() => setIsProjectModalOpen(true)} className="inline-flex items-center gap-1 rounded-md bg-[#0075de] px-2 py-1 text-[10px] font-semibold text-white"><Plus className="h-3 w-3" /> New</button>
+                </div>
+                <div className="mt-3 flex gap-2 overflow-x-auto lg:flex-col custom-scrollbar">
+                  {activeClient.projects.map((project: any) => {
+                    const complete = countCompletedTasks(project.tasks)
+                    const progress = project.tasks.length ? Math.round((complete / project.tasks.length) * 100) : 0
+                    return (
+                      <div
+                        key={project.id}
+                        className={`min-w-[220px] rounded-lg border p-3 transition-colors lg:min-w-0 ${workScope === "project" && selectedProject?.id === project.id ? "border-[#0075de]/60 bg-[#0075de]/10" : "border-[#3f3f46] bg-[#202023] hover:border-[#52525b]"}`}
+                      >
+                        <button onClick={() => { setSelectedProjectId(project.id); setWorkScope("project") }} className="block w-full text-left">
+                          <span className="flex items-center gap-2 text-xs font-semibold text-white"><FolderKanban className="h-3.5 w-3.5 text-[#60a5fa]" /> {project.name}</span>
+                          <span className="mt-2 block text-[10px] text-[#a1a1aa]">{project.tasks.length} tasks · {progress}% complete</span>
+                        </button>
+                        <div className="mt-2 flex items-center justify-between border-t border-[#3f3f46] pt-2 text-[10px] text-[#71717a]">
+                          <span className="capitalize">Project: {project.status.replace(/_/g, " ")}</span>
+                          <span className="flex items-center gap-2">
+                            <Link href={`/projects/${project.id}/${project.default_view || "board"}`} aria-label={`Open ${project.name}`} title="Open project" className="text-[#60a5fa]"><ExternalLink className="h-3.5 w-3.5" /></Link>
+                            <button onClick={() => setEditingProject(project)} aria-label={`Edit ${project.name}`} title="Edit project" className="text-[#a1a1aa] hover:text-white"><PencilLine className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => setDeletingProject(project)} aria-label={`Delete ${project.name}`} title="Delete project" className="text-[#a1a1aa] hover:text-rose-300"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </span>
+                        </div>
                       </div>
-                      {clientTaskData && clientTaskLayout === "table" ? (
-                        <span className="text-xs text-[#71717a]">
-                          {clientTaskData.total === 0
-                            ? "No matching tasks"
-                            : `${(clientTaskData.page - 1) * clientTaskData.pageSize + 1}–${Math.min(clientTaskData.page * clientTaskData.pageSize, clientTaskData.total)} of ${clientTaskData.total}`}
-                        </span>
-                      ) : null}
-                      <div role="tablist" aria-label="Client task layout" className="flex rounded-lg border border-[#3f3f46] bg-[#131316] p-1">
-                        {(["table", "board"] as const).map((layout) => (
-                          <button
-                            key={layout}
-                            type="button"
-                            role="tab"
-                            aria-selected={clientTaskLayout === layout}
-                            onClick={() => handleClientTaskLayoutChange(layout)}
-                            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${clientTaskLayout === layout ? "bg-[#27272a] text-white" : "text-[#a1a1aa] hover:text-white"}`}
-                          >
-                            {layout === "table" ? <LayoutList className="h-3.5 w-3.5" /> : <LayoutGrid className="h-3.5 w-3.5" />}
-                            {layout === "table" ? "Table" : "Board"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    )
+                  })}
+                  {activeClient.projects.length === 0 ? <p className="rounded-lg border border-dashed border-[#3f3f46] p-4 text-xs text-[#71717a]">No projects yet.</p> : null}
+                </div>
+                <button
+                  onClick={() => setWorkScope("direct")}
+                  className={`mt-3 w-full rounded-lg border p-3 text-left ${workScope === "direct" ? "border-[#0075de]/60 bg-[#0075de]/10" : "border-[#3f3f46] bg-[#202023]"}`}
+                >
+                  <span className="flex items-center gap-2 text-xs font-semibold text-white"><Briefcase className="h-3.5 w-3.5 text-orange-300" /> Direct Tasks</span>
+                  <span className="mt-1 block text-[10px] text-[#a1a1aa]">{activeClient.tasks.length} tasks without a project</span>
+                </button>
+              </aside>
 
-                    {boardError ? (
-                      <p role="alert" className="m-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{boardError}</p>
-                    ) : null}
+              <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3f3f46] px-4 py-3 sm:px-6">
+                  <div>
+                    <h2 className="text-sm font-semibold text-white">{workScope === "project" ? selectedProject?.name || "Select a project" : "Direct Tasks"}</h2>
+                    <p className="mt-0.5 text-[11px] text-[#71717a]">{workScope === "project" ? "Task workflow inside this project; project status remains separate." : `Tasks assigned directly to ${activeClient.name}.`}</p>
+                  </div>
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tasks" className="h-8 rounded-md border border-[#3f3f46] bg-[#202023] px-3 text-xs text-white outline-none focus:border-[#0075de]" />
+                </div>
+                {actionError ? <div className="mx-4 mt-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300 sm:mx-6">{actionError}</div> : null}
+                {actionNotice ? <div className="mx-4 mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300 sm:mx-6">{actionNotice}</div> : null}
 
-                    {clientTaskLayout === "board" ? (
-                      <DragDropContext onDragEnd={handleBoardDragEnd}>
-                        <div className="flex min-w-max items-start gap-3 overflow-x-auto p-3 custom-scrollbar">
-                          {TASK_WORKFLOW_STAGES.map((stage) => {
-                            const column = boardColumns[stage.id]
-                            const total = boardCounts?.[stage.id] ?? column?.total ?? 0
-                            return (
-                              <div key={stage.id} className="flex max-h-[70vh] w-[280px] shrink-0 flex-col rounded-xl border border-[#3f3f46] bg-[#202023] sm:w-[300px]">
-                                <div className="border-b border-[#3f3f46] p-3">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex min-w-0 items-center gap-2">
-                                      <h3 className="truncate text-xs font-bold uppercase tracking-wider text-[#f4f4f5]">{stage.label}</h3>
-                                      <span className="shrink-0 rounded-full bg-[#18181b] px-1.5 py-0.5 text-[10px] font-bold text-[#a1a1aa]" aria-label={`${total} tasks in ${stage.label}`}>
-                                        {boardSummaryLoading && boardCounts === null ? "…" : total}
-                                      </span>
-                                    </div>
-                                    {stage.manualTransition && clientTaskScope === "active" ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => startBoardQuickAdd(stage.id)}
-                                        aria-label={`Add task to ${stage.label}`}
-                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[#3f3f46] text-[#a1a1aa] transition-colors hover:border-[#0075de]/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
-                                      >
-                                        <Plus className="h-3.5 w-3.5" />
-                                      </button>
-                                    ) : !stage.manualTransition ? (
-                                      <span
-                                        aria-label={`Tasks cannot be added directly to ${stage.label}; it is controlled by the quality workflow`}
-                                        title={`${stage.label} is controlled by the quality workflow`}
-                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#71717a]"
-                                      >
-                                        <ShieldCheck className="h-3.5 w-3.5" />
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  {addingStage === stage.id ? (
-                                    <form
-                                      onSubmit={(event) => {
-                                        event.preventDefault()
-                                        void submitBoardQuickAdd(stage.id)
-                                      }}
-                                      className="mt-2"
-                                    >
-                                      <input
-                                        autoFocus
-                                        value={newTaskTitle}
-                                        onChange={(event) => setNewTaskTitle(event.target.value)}
-                                        onKeyDown={(event) => {
-                                          if (event.key === "Escape") cancelBoardQuickAdd()
-                                        }}
-                                        placeholder={`Add task to ${stage.label}…`}
-                                        aria-label={`New task title for ${stage.label}`}
-                                        className="w-full rounded-md border border-[#3f3f46] bg-[#18181b] px-2.5 py-1.5 text-xs text-white outline-none placeholder:text-[#71717a] focus:border-[#0075de]"
-                                      />
-                                      <div className="mt-2 flex items-center gap-2">
-                                        <button type="submit" disabled={!newTaskTitle.trim()} className="rounded-full bg-[#0075de] px-3 py-1 text-xs font-semibold text-white disabled:opacity-40">Add</button>
-                                        <button type="button" onClick={cancelBoardQuickAdd} className="rounded-md px-2 py-1 text-xs font-medium text-[#a1a1aa] hover:text-white">Cancel</button>
-                                      </div>
-                                    </form>
-                                  ) : null}
-                                </div>
-                                <Droppable droppableId={stage.id} isDropDisabled={!stage.manualTransition}>
-                                  {(provided, snapshot) => (
-                                    <div
-                                      ref={provided.innerRef}
-                                      {...provided.droppableProps}
-                                      className={`flex-1 space-y-2 overflow-y-auto p-2.5 custom-scrollbar transition-colors ${snapshot.isDraggingOver ? "bg-[#18181b]/60" : ""}`}
-                                    >
-                                      {(column?.tasks || []).map((task: any, index: number) => {
-                                        const stageDefinition = TASK_WORKFLOW_STAGES.find((entry) => entry.id === task.status)
-                                        return (
-                                          <Draggable key={task.id} draggableId={task.id} index={index}>
-                                            {(dragProvided, dragSnapshot) => (
-                                              <div
-                                                ref={dragProvided.innerRef}
-                                                {...dragProvided.draggableProps}
-                                                {...dragProvided.dragHandleProps}
-                                                onClick={() => setSelectedTask(task)}
-                                                onKeyDown={(event) => {
-                                                  if (event.key === "Enter" || event.key === " ") {
-                                                    event.preventDefault()
-                                                    setSelectedTask(task)
-                                                  }
-                                                }}
-                                                role="button"
-                                                tabIndex={0}
-                                                className={`cursor-pointer rounded-lg border border-[#3f3f46] bg-[#202023] p-2.5 shadow-sm transition-all hover:border-[#0075de]/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de] ${dragSnapshot.isDragging ? "z-50 rotate-1 border-[#0075de]/50 bg-[#27272a] shadow-xl" : ""}`}
-                                              >
-                                                <div className="flex items-start justify-between gap-2">
-                                                  <h4 className={`text-xs font-semibold leading-snug ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5]"}`}>{task.title}</h4>
-                                                  {task.quality_required && task.status !== "complete" ? (
-                                                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" aria-label="Quality required" />
-                                                  ) : null}
-                                                </div>
-                                                <div className="mt-2 flex items-center gap-1.5">
-                                                  <span className="truncate rounded bg-[#18181b] px-1.5 py-0.5 text-[10px] font-semibold text-[#a1a1aa]">
-                                                    {task.client_project?.name || "Direct client task"}
-                                                  </span>
-                                                  {stageDefinition && stageDefinition.textAccent ? (
-                                                    <span className={`shrink-0 text-[10px] font-semibold ${stageDefinition.textAccent}`}>{stageDefinition.label}</span>
-                                                  ) : null}
-                                                </div>
-                                                <div className="mt-2 flex items-center justify-between gap-2">
-                                                  <div className="flex items-center gap-1.5">
-                                                    {task.due_date ? (
-                                                      <span className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) && task.status !== "complete" ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-[#3f3f46] text-[#a1a1aa]"}`}>
-                                                        <Clock className="h-3 w-3" />
-                                                        {format(new Date(task.due_date), "MMM d")}
-                                                      </span>
-                                                    ) : null}
-                                                    {task.priority ? (
-                                                      <span className={`h-1.5 w-1.5 rounded-full ${task.priority === "high" ? "bg-rose-500" : task.priority === "medium" ? "bg-amber-500" : "bg-blue-500"}`} aria-label={`Priority: ${task.priority}`} />
-                                                    ) : null}
-                                                  </div>
-                                                  <span className="max-w-[7rem] truncate text-[10px] font-medium text-[#a1a1aa]">
-                                                    {task.assignee?.full_name || "Unassigned"}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                            )}
-                                          </Draggable>
-                                        )
-                                      })}
-                                      {provided.placeholder}
-                                      {column?.loading ? (
-                                        <div className="flex items-center justify-center gap-2 py-4 text-xs text-[#a1a1aa]" aria-live="polite">
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
-                                        </div>
-                                      ) : null}
-                                      {!column?.loading && column && column.tasks.length === 0 && column.page >= column.totalPages ? (
-                                        <p className="py-6 text-center text-[10px] text-[#71717a]">No tasks here</p>
-                                      ) : null}
-                                      {column && !column.loading && column.page < column.totalPages ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleLoadMoreBoardColumn(stage.id)}
-                                          className="w-full rounded-lg border border-dashed border-[#3f3f46] py-2 text-xs font-semibold text-[#a1a1aa] transition-colors hover:border-[#0075de]/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
-                                        >
-                                          Load more{total > column.tasks.length ? ` (${total - column.tasks.length} remaining)` : ""}
-                                        </button>
-                                      ) : null}
+                <DragDropContext onDragEnd={handleDragEnd}>
+                  <div className="flex flex-1 items-start gap-3 overflow-auto p-4 sm:p-6 custom-scrollbar">
+                    {workflowColumns.map((column) => (
+                      <div key={column.id} className="flex min-h-[420px] w-[280px] shrink-0 flex-col rounded-xl border border-[#3f3f46] bg-[#202023]">
+                        <div className="flex items-center justify-between border-b border-[#3f3f46] p-3">
+                          <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-white"><span className={`h-2 w-2 rounded-full ${column.accent}`} />{column.label}</span>
+                          <span className="rounded-full bg-[#18181b] px-2 py-0.5 text-[10px] font-bold text-[#a1a1aa]">{column.tasks.length}</span>
+                        </div>
+                        <Droppable droppableId={column.id} isDropDisabled={!column.manualTransition}>
+                          {(provided, snapshot) => (
+                            <div ref={provided.innerRef} {...provided.droppableProps} className={`flex-1 space-y-2 p-3 ${snapshot.isDraggingOver ? "bg-[#18181b]/70" : ""}`}>
+                              {column.tasks.map((task: any, index: number) => (
+                                <Draggable key={task.id} draggableId={task.id} index={index} isDragDisabled={!canStartManualDrag(task)}>
+                                  {(dragProvided, dragSnapshot) => (
+                                    <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} {...dragProvided.dragHandleProps} style={dragProvided.draggableProps.style}>
+                                      <TaskCard task={task} direct={workScope === "direct"} dragging={dragSnapshot.isDragging} converting={convertingTaskId === task.id} onOpen={() => setSelectedTask(task)} onConvert={() => void handleConvertTask(task)} />
                                     </div>
                                   )}
-                                </Droppable>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </DragDropContext>
-                    ) : clientTasksLoading && !clientTaskData ? (
-                      <div className="flex min-h-40 items-center justify-center gap-2 px-4 py-10 text-sm text-[#a1a1aa]" aria-live="polite">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Loading client tasks…
-                      </div>
-                    ) : clientTasksError ? (
-                      <p role="alert" className="m-4 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{clientTasksError}</p>
-                    ) : clientTaskData?.tasks?.length ? (
-                      <div className={clientTasksLoading ? "opacity-60" : ""} aria-busy={clientTasksLoading}>
-                        <div className="hidden grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_8rem] gap-4 border-b border-[#27272a] px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-[#71717a] md:grid">
-                          <span>Task</span><span>Assignee</span><span>Project</span><span>Status</span>
-                        </div>
-                        <div className="divide-y divide-[#27272a]">
-                          {clientTaskData.tasks.map((task: any) => {
-                            const stage = TASK_WORKFLOW_STAGES.find((entry) => entry.id === task.status)
-                            return (
-                              <button
-                                key={task.id}
-                                type="button"
-                                onClick={() => setSelectedTask(task)}
-                                className="grid w-full gap-2 px-4 py-3 text-left transition-colors hover:bg-[#202023] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0075de] md:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_8rem] md:items-center md:gap-4"
-                              >
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm font-medium text-white">{task.title}</span>
-                                  {task.parent_task_id ? <span className="mt-0.5 block text-[10px] text-[#71717a]">Subtask</span> : null}
-                                </span>
-                                <span className="truncate text-xs text-[#d4d4d8]">
-                                  {task.assignee?.full_name || "Unassigned"}
-                                </span>
-                                <span className="truncate text-xs text-[#a1a1aa]">
-                                  {task.client_project?.name || "Direct client task"}
-                                </span>
-                                <span className="text-xs font-medium text-[#d4d4d8]">
-                                  {stage?.label || task.status.replace(/_/g, " ")}
-                                </span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                        {clientTaskData.totalPages > 1 ? (
-                          <div className="flex items-center justify-between border-t border-[#27272a] px-4 py-3">
-                            <button type="button" onClick={() => setClientTaskPage((page) => Math.max(1, page - 1))} disabled={clientTaskData.page <= 1 || clientTasksLoading} className="rounded-md border border-[#3f3f46] px-3 py-1.5 text-xs text-white disabled:opacity-40">Previous</button>
-                            <span className="text-xs text-[#71717a]">Page {clientTaskData.page} of {clientTaskData.totalPages}</span>
-                            <button type="button" onClick={() => setClientTaskPage((page) => Math.min(clientTaskData.totalPages, page + 1))} disabled={clientTaskData.page >= clientTaskData.totalPages || clientTasksLoading} className="rounded-md border border-[#3f3f46] px-3 py-1.5 text-xs text-white disabled:opacity-40">Next</button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="px-6 py-12 text-center">
-                        <h3 className="text-sm font-semibold text-white">No {clientTaskScope} tasks</h3>
-                        <p className="mt-1 text-xs text-[#71717a]">
-                          {clientTaskSearch ? "Try a different task title." : `No ${clientTaskScope} task records are linked to this client.`}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-                {/* Projects Section */}
-                <section>
-                  <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-semibold tracking-tight text-white">Projects</h2>
-                      <p className="mt-1 text-sm text-[#a1a1aa]">Initiatives and workflows for {activeClient.name}</p>
-                    </div>
-                    <button 
-                      onClick={() => setIsProjectModalOpen(true)} 
-                      className="group inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#e4e4e7] active:scale-95"
-                    >
-                      <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" /> 
-                      New Project
-                    </button>
-                  </div>
-                  
-                  {activeClient.projects.length > 0 ? (
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {activeClient.projects.map((project: any) => {
-                        const complete = countCompletedTasks(project.tasks)
-                        const progress = project.tasks.length ? Math.round((complete / project.tasks.length) * 100) : 0
-                        return (
-                          <div 
-                            key={project.id} 
-                            onClick={() => window.location.href = `/projects/${project.id}/${project.default_view || "board"}`}
-                            className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-[#27272a] bg-[#18181b] p-5 transition-all hover:-translate-y-1 hover:border-[#3f3f46] hover:bg-[#202023] hover:shadow-2xl hover:shadow-black/50"
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-110" style={{ backgroundColor: `${project.color || '#60a5fa'}20`, color: project.color || '#60a5fa' }}>
-                                <FolderKanban className="h-5 w-5" />
-                              </div>
-                              <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                                <button onClick={() => setEditingProject(project)} className="flex h-8 w-8 items-center justify-center rounded-full bg-[#27272a] text-[#a1a1aa] transition-colors hover:bg-[#3f3f46] hover:text-white" title="Edit Project"><PencilLine className="h-4 w-4" /></button>
-                                <button onClick={() => setDeletingProject(project)} className="flex h-8 w-8 items-center justify-center rounded-full bg-[#27272a] text-[#a1a1aa] transition-colors hover:bg-rose-500/20 hover:text-rose-400" title="Delete Project"><Trash2 className="h-4 w-4" /></button>
-                              </div>
-                            </div>
-                            
-                            <div className="mt-4 flex-1">
-                              <h3 className="truncate text-base font-semibold text-white">{project.name}</h3>
-                              <p className="mt-1 text-xs capitalize text-[#71717a]">{project.status.replace(/_/g, " ")}</p>
-                            </div>
-
-                            <div className="mt-6 flex items-center justify-between gap-4">
-                              <div className="flex-1">
-                                <div className="flex justify-between text-[10px] font-medium text-[#a1a1aa]">
-                                  <span>Progress</span>
-                                  <span>{progress}%</span>
+                                </Draggable>
+                              ))}
+                              {provided.placeholder}
+                              {addingStage === column.id ? (
+                                <div className="rounded-lg border border-[#0075de]/40 bg-[#18181b] p-2">
+                                  <input autoFocus value={newTaskTitle} onChange={(event) => setNewTaskTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void handleCreateTask(column.id); if (event.key === "Escape") setAddingStage(null) }} placeholder="Task title" className="w-full bg-transparent text-xs text-white outline-none" />
+                                  <div className="mt-2 flex gap-2"><button onClick={() => void handleCreateTask(column.id)} className="rounded-full bg-[#0075de] px-3 py-1 text-[10px] font-semibold text-white">Add</button><button onClick={() => setAddingStage(null)} className="text-[10px] text-[#a1a1aa]">Cancel</button></div>
                                 </div>
-                                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[#27272a]">
-                                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progress}%`, backgroundColor: project.color || '#60a5fa' }} />
-                                </div>
-                              </div>
-                              <div className="flex flex-col items-end">
-                                <span className="text-[10px] font-medium text-[#71717a]">Tasks</span>
-                                <span className="text-sm font-semibold text-white">{project.tasks.length}</span>
-                              </div>
+                              ) : column.manualTransition ? (
+                                <button onClick={() => { setAddingStage(column.id); setNewTaskTitle(""); setActionError("") }} disabled={workScope === "project" && !selectedProject} className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-[#3f3f46] py-2 text-[10px] font-semibold text-[#71717a] hover:border-[#0075de]/50 hover:text-white disabled:opacity-40"><Plus className="h-3 w-3" /> Add task</button>
+                              ) : (
+                                <p className="rounded-lg border border-dashed border-[#3f3f46] px-2 py-3 text-center text-[10px] text-[#71717a]">Quality action required</p>
+                              )}
                             </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-[#27272a] bg-[#18181b]/50 px-6 py-16 text-center">
-                      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#27272a]">
-                        <FolderKanban className="h-6 w-6 text-[#71717a]" />
+                          )}
+                        </Droppable>
                       </div>
-                      <h3 className="text-sm font-semibold text-white">No projects found</h3>
-                      <p className="mt-1 max-w-sm text-xs leading-relaxed text-[#a1a1aa]">Projects are where your team collaborates on tasks. Create one to get started.</p>
-                      <button onClick={() => setIsProjectModalOpen(true)} className="mt-6 rounded-full bg-white px-5 py-2 text-xs font-semibold text-black transition-transform hover:scale-105 active:scale-95">Create first project</button>
-                    </div>
-                  )}
-                </section>
-
-              </div>
+                    ))}
+                  </div>
+                </DragDropContext>
+              </main>
             </div>
           </div>
         )}
