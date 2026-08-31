@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd"
 import { Card } from "@/components/ui/card"
-import { format, isPast, isToday } from "date-fns"
-import { MessageSquare, CheckSquare, Plus, X, Calendar } from "lucide-react"
+import { MessageSquare, CheckSquare, Plus, X, Calendar, CheckCircle2, ShieldCheck } from "lucide-react"
+import { getDueDatePresentation } from "@/lib/due-date"
 import { createSection, createTask, updateTask, updateTaskPosition } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
 import { resolveBoardTaskCreationPlacement } from "@/lib/board-task-placement"
@@ -37,6 +37,7 @@ export default function BoardClient({
   const [isAddingSection, setIsAddingSection] = useState(false)
   const [newSectionName, setNewSectionName] = useState("")
   const [boardError, setBoardError] = useState("")
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const sectionInputRef = useRef<HTMLInputElement>(null)
   const searchParams = useSearchParams()
@@ -58,6 +59,33 @@ export default function BoardClient({
       sections: syncTaskInSections(prev.sections, updatedTask, { projectId: prev.id }),
     }))
     setSelectedTask((current: any) => current?.id === updatedTask.id ? { ...current, ...updatedTask } : current)
+  }
+
+  const handleToggleComplete = async (task: any) => {
+    const nextStatus = task.status === "complete" ? "incomplete" : "complete"
+    const transitionError = validateManualTaskTransition({
+      from: task.status,
+      to: nextStatus as TaskWorkflowStageId,
+      qualityRequired: Boolean(task.quality_required),
+      qualityState: task.quality_state || "not_required",
+    })
+    if (transitionError) {
+      setBoardError(transitionError)
+      return
+    }
+    if (updatingTaskId) return
+    setBoardError("")
+    setUpdatingTaskId(task.id)
+    const previousStatus = task.status
+    applyTaskUpdate({ ...task, status: nextStatus })
+    const result = await updateTask(task.id, { status: nextStatus })
+    if (result.error) {
+      applyTaskUpdate({ ...task, status: previousStatus })
+      setBoardError(result.error)
+    } else if (result.task) {
+      applyTaskUpdate(result.task)
+    }
+    setUpdatingTaskId(null)
   }
 
   const allTasks = data.sections.flatMap((section: any) => section.tasks)
@@ -435,8 +463,42 @@ export default function BoardClient({
                             }`}
                           >
                             {/* Card Content */}
-                            <div className="flex items-start justify-between gap-2">
-                              <h4 dir="auto" className={`w-full text-xs font-semibold leading-5 transition-colors ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5] group-hover/card:text-[#0075de]"}`}>{task.title}</h4>
+                            <div className="flex items-start gap-2">
+                              {(() => {
+                                const isComplete = task.status === "complete"
+                                const isBlocked = Boolean(
+                                  task.quality_required ||
+                                    ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                                    ["submitted_for_review", "needs_rework"].includes(task.status)
+                                )
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={isBlocked || updatingTaskId === task.id}
+                                    aria-label={isComplete ? "Mark incomplete" : "Mark complete"}
+                                    title={isBlocked ? "Quality approval required" : isComplete ? "Mark incomplete" : "Mark complete"}
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      void handleToggleComplete(task)
+                                    }}
+                                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de] ${
+                                      isComplete ? "border-emerald-500 bg-emerald-500 text-white" : "border-[#71717a] bg-transparent text-transparent hover:border-emerald-500"
+                                    } ${isBlocked ? "cursor-not-allowed opacity-60" : ""} ${updatingTaskId === task.id ? "opacity-50" : ""}`}
+                                  >
+                                    {isComplete ? <CheckCircle2 className="h-3.5 w-3.5 text-white" /> : <span className="h-2 w-2 rounded-full bg-emerald-500 opacity-0 group-hover/card:opacity-100 transition-opacity" />}
+                                  </button>
+                                )
+                              })()}
+                              <h4 dir="auto" className={`flex-1 text-xs font-semibold leading-5 transition-colors ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5] group-hover/card:text-[#0075de]"}`}>{task.title}</h4>
+                              {(() => {
+                                const isBlocked = Boolean(
+                                  task.quality_required ||
+                                    ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                                    ["submitted_for_review", "needs_rework"].includes(task.status)
+                                )
+                                return isBlocked ? <span title="Quality controlled"><ShieldCheck className="h-3 w-3 shrink-0 text-amber-400 mt-1" /></span> : null
+                              })()}
                             </div>
 
                             {/* Tags */}
@@ -458,12 +520,15 @@ export default function BoardClient({
                             {/* Metadata */}
                             <div className="flex items-center justify-between border-t border-[#27272a] pt-2 text-[11px]">
                               <div className="flex items-center gap-2.5 flex-wrap">
-                                {task.due_date && (
-                                    <span className={`flex items-center gap-1 font-medium ${isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) ? 'text-rose-400' : isToday(new Date(task.due_date)) ? 'text-[#60a5fa]' : 'text-[#a1a1aa]'}`}>
-                                    <Calendar className="w-3 h-3" />
-                                    {format(new Date(task.due_date), 'MMM d')}
-                                  </span>
-                                )}
+                                {task.due_date && (() => {
+                                  const due = getDueDatePresentation(task.due_date)
+                                  return (
+                                    <span className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${due.className}`}>
+                                      <Calendar className="w-3 h-3" />
+                                      {due.label}
+                                    </span>
+                                  )
+                                })()}
                                 {task.priority && priorityConfig[task.priority] && (
                                   <span className={`px-1.5 py-0.5 rounded font-bold uppercase tracking-widest text-[9px] ${priorityConfig[task.priority].bg} ${priorityConfig[task.priority].text}`}>
                                     {task.priority}

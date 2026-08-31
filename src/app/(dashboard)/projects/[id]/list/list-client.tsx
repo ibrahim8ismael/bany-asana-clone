@@ -1,12 +1,12 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { format } from "date-fns"
-import { ChevronDown, Plus, X, CheckCircle, Flag } from "lucide-react"
+import { ChevronDown, Plus, X, CheckCircle, Flag, ShieldCheck } from "lucide-react"
+import { getDueDatePresentation } from "@/lib/due-date"
 import TaskDrawer from "@/components/task-drawer"
-import { createTask } from "@/actions/server-actions"
+import { createTask, updateTask } from "@/actions/server-actions"
 import { syncTaskInSections } from "@/lib/task-sync"
-import { getTaskWorkflowLabel, getTaskWorkflowStage, isTaskWorkflowStage } from "@/lib/workflow"
+import { getTaskWorkflowLabel, getTaskWorkflowStage, isTaskWorkflowStage, validateManualTaskTransition } from "@/lib/workflow"
 
 const priorityStyles: Record<string, string> = {
   high: "bg-red-100 text-red-700",
@@ -21,6 +21,8 @@ export default function ListClient({ project }: { project: any }) {
   const [newTaskTitle, setNewTaskTitle] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null)
+  const [listError, setListError] = useState("")
   const searchParams = useSearchParams()
 
   const toggleSection = (id: string) => {
@@ -36,6 +38,33 @@ export default function ListClient({ project }: { project: any }) {
       ...prev,
       sections: syncTaskInSections(prev.sections, updatedTask, { projectId: prev.id }),
     }))
+    setSelectedTask((curr: any) => curr?.id === updatedTask.id ? { ...curr, ...updatedTask } : curr)
+  }
+
+  const handleToggleComplete = async (task: any) => {
+    const nextStatus = task.status === "complete" ? "incomplete" : "complete"
+    const transitionError = validateManualTaskTransition({
+      from: task.status,
+      to: nextStatus,
+      qualityRequired: Boolean(task.quality_required),
+      qualityState: task.quality_state || "not_required",
+    })
+    if (transitionError) {
+      setListError(transitionError)
+      return
+    }
+    if (updatingTaskId) return
+    setListError("")
+    setUpdatingTaskId(task.id)
+    applyTaskUpdate({ ...task, status: nextStatus })
+    const result = await updateTask(task.id, { status: nextStatus })
+    if (result.error) {
+      applyTaskUpdate(task)
+      setListError(result.error)
+    } else if (result.task) {
+      applyTaskUpdate(result.task)
+    }
+    setUpdatingTaskId(null)
   }
 
   useEffect(() => {
@@ -101,6 +130,7 @@ export default function ListClient({ project }: { project: any }) {
 
   return (
     <div className="space-y-4 pb-20">
+      {listError ? <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-300">{listError}</div> : null}
       {data.sections.map((section: any) => {
         const isCollapsed = collapsedSections.has(section.id)
         return (
@@ -147,8 +177,41 @@ export default function ListClient({ project }: { project: any }) {
                           >
                             <td className="px-4 py-2.5">
                               <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full border-2 border-gray-300 dark:border-zinc-600 flex-shrink-0 group-hover/row:border-blue-400 transition-colors" />
+                                {(() => {
+                                  const isComplete = task.status === "complete"
+                                  const isBlocked = Boolean(
+                                    task.quality_required ||
+                                      ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                                      ["submitted_for_review", "needs_rework"].includes(task.status)
+                                  )
+                                  return (
+                                    <button
+                                      type="button"
+                                      disabled={isBlocked || updatingTaskId === task.id}
+                                      aria-label={isComplete ? "Mark incomplete" : "Mark complete"}
+                                      title={isBlocked ? "Quality approval required" : isComplete ? "Mark incomplete" : "Mark complete"}
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        void handleToggleComplete(task)
+                                      }}
+                                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                                        isComplete ? "border-emerald-500 bg-emerald-500 text-white" : "border-gray-300 dark:border-zinc-600 group-hover/row:border-blue-400 bg-transparent"
+                                      } ${isBlocked ? "cursor-not-allowed opacity-60" : ""} ${updatingTaskId === task.id ? "opacity-50" : ""}`}
+                                    >
+                                      {isComplete ? <CheckCircle className="h-3 w-3 text-white" /> : null}
+                                    </button>
+                                  )
+                                })()}
                                 <span className={`truncate flex-1 font-medium ${task.status === "complete" ? "text-gray-400 line-through dark:text-zinc-500" : "text-gray-800 dark:text-gray-200"}`}>{task.title}</span>
+                                {(() => {
+                                  const blocked = Boolean(
+                                    task.quality_required ||
+                                      ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                                      ["submitted_for_review", "needs_rework"].includes(task.status)
+                                  )
+                                  return blocked ? <ShieldCheck className="h-3 w-3 shrink-0 text-amber-500" /> : null
+                                })()}
                               </div>
                             </td>
                             <td className="px-4 py-2.5 border-l dark:border-zinc-700">
@@ -163,8 +226,11 @@ export default function ListClient({ project }: { project: any }) {
                                 </div>
                               ) : <span className="text-gray-400">—</span>}
                             </td>
-                            <td className="px-4 py-2.5 border-l dark:border-zinc-700 text-gray-500">
-                              {task.due_date ? format(new Date(task.due_date), "MMM d") : ""}
+                            <td className="px-4 py-2.5 border-l dark:border-zinc-700">
+                              {task.due_date ? (() => {
+                                const due = getDueDatePresentation(task.due_date)
+                                return <span className={`inline-flex rounded border px-2 py-0.5 text-[11px] font-semibold ${due.className}`}>{due.label}</span>
+                              })() : <span className="text-gray-400">—</span>}
                             </td>
                             <td className="px-4 py-2.5 border-l dark:border-zinc-700">
                               {task.priority ? (

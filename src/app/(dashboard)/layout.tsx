@@ -18,7 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/login")
   }
 
-  const [{ workspace, workspaces, clients, starredProjects, canImport, isSuperAdmin, myTasksBadgeCount }, currentUser, unreadNotifications] = await Promise.all([
+  const [{ workspace, workspaces, clients, starredProjects, canImport, isSuperAdmin, myTasksBadgeCount, people }, currentUser, unreadNotifications] = await Promise.all([
     getSidebarData(userId),
     prisma.user.findUnique({
       where: { id: userId },
@@ -35,7 +35,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-dvh min-h-0 overflow-hidden bg-[#18181b]">
-      <Sidebar workspace={workspace} workspaces={workspaces} clients={clients} starredProjects={starredProjects} canImport={canImport} isSuperAdmin={isSuperAdmin} myTasksBadgeCount={myTasksBadgeCount} />
+      <Sidebar workspace={workspace} workspaces={workspaces} clients={clients} starredProjects={starredProjects} canImport={canImport} isSuperAdmin={isSuperAdmin} myTasksBadgeCount={myTasksBadgeCount} people={people} />
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         <Topbar
           user={currentUser ? { name: currentUser.full_name, email: currentUser.email, image: currentUser.avatar_url } : session.user}
