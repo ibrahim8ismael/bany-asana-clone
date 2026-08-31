@@ -121,6 +121,61 @@ export async function getSidebarData(userId: string) {
   })
   const workspace = workspaces.find((item) => item.id === activeWorkspace?.id) ?? null
 
+  const canViewPeople = Boolean(workspace?.canAdmin || superAdmin)
+  let people: Array<{
+    id: string
+    full_name: string
+    email: string
+    avatar_url: string | null
+    role: string
+    incompleteCount: number
+  }> = []
+
+  if (canViewPeople && activeWorkspace) {
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspace_id: activeWorkspace.id },
+      select: {
+        role: true,
+        joined_at: true,
+        user: { select: USER_PUBLIC_SELECT },
+      },
+      orderBy: { joined_at: "asc" },
+    })
+
+    const memberIds = members.map((m) => m.user.id)
+    const counts = memberIds.length
+      ? await prisma.task.groupBy({
+          by: ["assignee_id"],
+          where: {
+            AND: [
+              taskAccessWhere(userId, "view", superAdmin),
+              {
+                workspace_id: activeWorkspace.id,
+                archived: false,
+                status: { not: "complete" },
+                assignee_id: { in: memberIds },
+              },
+            ],
+          },
+          _count: { _all: true },
+        })
+      : []
+
+    const countMap = new Map<string, number>()
+    for (const row of counts) {
+      if (row.assignee_id) countMap.set(row.assignee_id, row._count._all)
+    }
+
+    people = members.map((membership) => ({
+      id: membership.user.id,
+      full_name: membership.user.full_name,
+      email: membership.user.email,
+      avatar_url: membership.user.avatar_url,
+      role: membership.role,
+      incompleteCount: countMap.get(membership.user.id) || 0,
+    })).sort((a, b) => a.full_name.localeCompare(b.full_name))
+  }
+
   return {
     workspace,
     workspaces,
@@ -132,6 +187,7 @@ export async function getSidebarData(userId: string) {
     canImport: Boolean(superAdmin),
     isSuperAdmin: Boolean(superAdmin),
     myTasksBadgeCount,
+    people,
   }
 }
 

@@ -4,7 +4,8 @@ import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { format, isPast, isToday } from "date-fns"
+import { format } from "date-fns"
+import { getDueDatePresentation } from "@/lib/due-date"
 import {
   DragDropContext,
   Draggable,
@@ -72,10 +73,8 @@ type WorkScope = "project" | "direct"
 type ClientTaskScope = "active" | "archived"
 
 function isTaskOverdue(task: any) {
-  return Boolean(task.due_date)
-    && isPast(new Date(task.due_date))
-    && !isToday(new Date(task.due_date))
-    && task.status !== "complete"
+  if (!task.due_date || task.status === "complete") return false
+  return getDueDatePresentation(task.due_date).isOverdue
 }
 
 function countCompletedTasks(tasks: any[]) {
@@ -1010,7 +1009,7 @@ function TaskCard({ task, direct, dragging, converting, onOpen, onConvert }: { t
     <div className={`rounded-lg border bg-[#18181b] p-3 ${dragging ? "border-[#0075de] shadow-xl" : "border-[#3f3f46]"}`}>
       <button onClick={onOpen} className="w-full text-left">
         <div className="flex items-start justify-between gap-2"><span className={`text-xs font-semibold leading-5 ${task.status === "complete" ? "text-[#71717a] line-through" : "text-white"}`}>{task.title}</span><CheckCircle2 className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${task.status === "complete" ? "text-emerald-400" : "text-[#52525b]"}`} /></div>
-        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-[#a1a1aa]">{task.assignee?.full_name ? <span>{task.assignee.full_name}</span> : <span>Unassigned</span>}{task.due_date ? <span className={isTaskOverdue(task) ? "text-rose-400" : ""}><Calendar className="mr-1 inline h-3 w-3" />{format(new Date(task.due_date), "MMM d")}</span> : null}{task.quality_required ? <span className="text-amber-300">Quality controlled</span> : null}</div>
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-[#a1a1aa]">{task.assignee?.full_name ? <span>{task.assignee.full_name}</span> : <span>Unassigned</span>}{task.due_date ? (() => { const due=getDueDatePresentation(task.due_date); return <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${due.className}`}><Calendar className="mr-1 h-3 w-3" />{due.label}</span> })() : null}{task.quality_required ? <span className="text-amber-300">Quality controlled</span> : null}</div>
       </button>
       {direct ? <div className="mt-2 border-t border-[#27272a] pt-2 text-right"><button onClick={onConvert} disabled={converting} className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#60a5fa] disabled:opacity-50"><ArrowUpCircle className="h-3 w-3" />{converting ? "Converting…" : "Convert to Project"}</button></div> : null}
     </div>

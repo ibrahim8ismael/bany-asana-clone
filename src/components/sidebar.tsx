@@ -22,6 +22,7 @@ import {
   Target,
   Upload,
   UserPlus,
+  Users,
   X,
 } from "lucide-react"
 import { createWorkspace, renameWorkspace, switchWorkspace } from "@/actions/workspace-actions"
@@ -68,6 +69,15 @@ interface StarredProject extends SidebarProject {
   } | null
 }
 
+interface SidebarPerson {
+  id: string
+  full_name: string
+  email: string
+  avatar_url: string | null
+  role: string
+  incompleteCount: number
+}
+
 export default function Sidebar({
   workspace,
   workspaces = [],
@@ -76,6 +86,7 @@ export default function Sidebar({
   canImport = false,
   isSuperAdmin = false,
   myTasksBadgeCount = 0,
+  people = [],
 }: {
   workspace?: SidebarWorkspace | null
   workspaces?: SidebarWorkspace[]
@@ -84,6 +95,7 @@ export default function Sidebar({
   canImport?: boolean
   isSuperAdmin?: boolean
   myTasksBadgeCount?: number
+  people?: SidebarPerson[]
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -104,6 +116,7 @@ export default function Sidebar({
   const [clientsExpanded, setClientsExpanded] = useState(true)
   const [insightsExpanded, setInsightsExpanded] = useState(true)
   const [starredExpanded, setStarredExpanded] = useState(true)
+  const [peopleExpanded, setPeopleExpanded] = useState(true)
   const [collapsedClientIds, setCollapsedClientIds] = useState<Set<string>>(new Set())
   const [hasLoadedCollapsedState, setHasLoadedCollapsedState] = useState(false)
 
@@ -508,6 +521,52 @@ export default function Sidebar({
               </div>
             ) : null}
           </div>
+
+          {(workspace?.canAdmin || isSuperAdmin) && people.length > 0 ? (
+            <div className="pt-4">
+              <button
+                onClick={() => setPeopleExpanded((current) => !current)}
+                className="mb-1 flex h-7 w-full items-center gap-1.5 px-3 text-[12px] font-bold uppercase tracking-wider text-[#71717a] transition-colors hover:text-[#f4f4f5]"
+              >
+                <ChevronDown className={`h-3 w-3 transition-transform ${peopleExpanded ? "" : "-rotate-90"}`} />
+                <Users className="h-3 w-3" />
+                People
+                <span className="ml-auto rounded-full bg-[#27272a] px-1.5 py-0.5 text-[10px] font-bold text-[#a1a1aa]">
+                  {people.length}
+                </span>
+              </button>
+              {peopleExpanded ? (
+                <ul className="space-y-0.5">
+                  {people.map((person) => {
+                    const isActive = pathname?.startsWith(`/people/${person.id}`)
+                    return (
+                      <li key={person.id}>
+                        <Link
+                          href={`/people/${person.id}`}
+                          className={`flex min-h-9 items-center gap-2.5 rounded-md px-3 py-1.5 text-xs transition-colors ${
+                            isActive ? "bg-[#27272a] font-semibold text-[#f4f4f5]" : "text-[#a1a1aa] hover:bg-[#27272a]/60 hover:text-[#f4f4f5]"
+                          }`}
+                        >
+                          <img
+                            src={person.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(person.full_name)}&background=0075de&color=fff&size=32`}
+                            alt={person.full_name}
+                            className="h-6 w-6 shrink-0 rounded-full border border-[#3f3f46] object-cover"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">{person.full_name}</div>
+                            <div className="truncate text-[10px] capitalize text-[#71717a]">{person.role}</div>
+                          </div>
+                          <span className="ml-auto shrink-0 rounded-full bg-[#18181b] px-1.5 py-0.5 text-[10px] font-bold text-[#a1a1aa] border border-[#3f3f46]">
+                            {person.incompleteCount}
+                          </span>
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="pb-6 pt-4">
             <div className="group mb-1 flex items-center justify-between px-3">

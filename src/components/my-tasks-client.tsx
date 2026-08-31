@@ -29,8 +29,9 @@ import {
   Draggable, 
   DropResult 
 } from "@hello-pangea/dnd"
-import { addDays, addWeeks, format, isFuture, isPast, isSameDay, isToday, startOfWeek, subWeeks } from "date-fns"
+import { addDays, addWeeks, isFuture, isPast, isSameDay, isToday, startOfWeek, subWeeks } from "date-fns"
 import { updateTask, updateTaskPosition, createSection, deleteSection, createTask } from "@/actions/server-actions"
+import { getDueDatePresentation } from "@/lib/due-date"
 import { syncTaskInSections } from "@/lib/task-sync"
 import { TASK_WORKFLOW_STAGES, type TaskWorkflowStageId, validateManualTaskTransition } from "@/lib/workflow"
 
@@ -68,6 +69,7 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
   const [filterBy, setFilterBy] = useState<FilterType>("all")
   const [sortBy, setSortBy] = useState<SortType>("recent")
   const [actionError, setActionError] = useState("")
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null)
   const searchParams = useSearchParams()
 
   const syncQueue = (items: any[], updatedTask: any, keep: boolean) => {
@@ -80,6 +82,33 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
     setTasks((previous) => syncQueue(previous, updatedTask, true))
     setSections((prev) => syncTaskInSections(prev, updatedTask, { assigneeId: userId }))
     setSelectedTask((current: any) => current?.id === updatedTask.id ? updatedTask : current)
+  }
+
+  const handleToggleComplete = async (task: any) => {
+    const nextStatus = task.status === "complete" ? "incomplete" : "complete"
+    const transitionError = validateManualTaskTransition({
+      from: task.status,
+      to: nextStatus,
+      qualityRequired: Boolean(task.quality_required),
+      qualityState: task.quality_state || "not_required",
+    })
+    if (transitionError) {
+      setActionError(transitionError)
+      return
+    }
+    if (updatingTaskId) return
+    setActionError("")
+    setUpdatingTaskId(task.id)
+    const previous = task
+    applyTaskUpdate({ ...task, status: nextStatus })
+    const result = await updateTask(task.id, { status: nextStatus })
+    if (result.error) {
+      applyTaskUpdate(previous)
+      setActionError(result.error)
+    } else if (result.success && result.task) {
+      applyTaskUpdate(result.task)
+    }
+    setUpdatingTaskId(null)
   }
 
   useEffect(() => {
@@ -442,6 +471,8 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
                   key={section.id} 
                   section={section} 
                   onTaskClick={setSelectedTask} 
+                  onToggleComplete={handleToggleComplete}
+                  updatingTaskId={updatingTaskId}
                   onDeleteSection={() => groupBy === "custom" && handleDeleteSection(section.id)}
                   lockQualityStatus={groupBy === "status"}
                 />
@@ -473,6 +504,8 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
                       key={section.id}
                       section={section}
                       onTaskClick={setSelectedTask}
+                      onToggleComplete={handleToggleComplete}
+                      updatingTaskId={updatingTaskId}
                       onAddTask={() => handleCreateTask({
                         sectionId: groupBy === "custom" ? section.id : undefined,
                         status: workflowStage?.id,
@@ -538,7 +571,7 @@ function TabItem({ active, onClick, icon: Icon, label }: any) {
   )
 }
 
-function ListSection({ section, onTaskClick, onDeleteSection }: any) {
+function ListSection({ section, onTaskClick, onDeleteSection, onToggleComplete, updatingTaskId }: any) {
   return (
     <div className="space-y-3 group/section">
       <div className="flex items-center justify-between">
@@ -571,8 +604,41 @@ function ListSection({ section, onTaskClick, onDeleteSection }: any) {
                     className={`group flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-[#3f3f46] bg-[#202023] px-3 py-2 transition-all hover:border-[#0075de]/50 hover:shadow-sm sm:gap-4 sm:px-4 ${snapshot.isDragging ? "z-50 border-[#0075de]/50 bg-[#27272a] shadow-xl" : ""}`}
                     onClick={() => onTaskClick(task)}
                   >
-                    <CheckCircle2 className={`w-4 h-4 shrink-0 ${task.status === "complete" ? "text-emerald-400 fill-emerald-950" : "text-[#71717a] hover:text-[#0075de]"}`} />
+                    {(() => {
+                      const isComplete = task.status === "complete"
+                      const isBlocked = Boolean(
+                        task.quality_required ||
+                          ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                          ["submitted_for_review", "needs_rework"].includes(task.status)
+                      )
+                      return (
+                        <button
+                          type="button"
+                          disabled={isBlocked || updatingTaskId === task.id}
+                          aria-label={isComplete ? "Mark incomplete" : "Mark complete"}
+                          title={isBlocked ? "Quality approval required" : isComplete ? "Mark incomplete" : "Mark complete"}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            void onToggleComplete(task)
+                          }}
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de] ${
+                            isComplete ? "border-emerald-500 bg-emerald-500 text-white" : "border-[#71717a] bg-transparent hover:border-emerald-500"
+                          } ${isBlocked ? "cursor-not-allowed opacity-60" : ""} ${updatingTaskId === task.id ? "opacity-50" : ""}`}
+                        >
+                          {isComplete ? <CheckCircle2 className="h-3 w-3 text-white" /> : null}
+                        </button>
+                      )
+                    })()}
                     <span className={`text-xs flex-1 truncate font-medium ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5]"}`}>{task.title}</span>
+                    {(() => {
+                      const blocked = Boolean(
+                        task.quality_required ||
+                          ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                          ["submitted_for_review", "needs_rework"].includes(task.status)
+                      )
+                      return blocked ? <ShieldCheck className="h-3 w-3 shrink-0 text-amber-400" /> : null
+                    })()}
                     {task.priority && (
                        <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest ${
                           task.priority === "high" ? "bg-red-500/20 text-red-300 border border-red-500/30" :
@@ -600,7 +666,7 @@ function ListSection({ section, onTaskClick, onDeleteSection }: any) {
   )
 }
 
-function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTaskLabel }: any) {
+function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTaskLabel, onToggleComplete, updatingTaskId }: any) {
   return (
     <div className="flex min-h-[360px] w-[calc(100vw-3rem)] shrink-0 flex-col rounded-xl border border-[#3f3f46] bg-[#202023] sm:w-[300px]">
       <div className="p-3 border-b border-[#3f3f46] flex items-center justify-between mb-1">
@@ -648,9 +714,42 @@ function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTa
                     onClick={() => onTaskClick(task)}
                     className={`bg-[#202023] border border-[#3f3f46] rounded-lg p-3 shadow-sm hover:border-[#0075de]/50 hover:shadow-md transition-all ${snapshot.isDragging ? "shadow-xl border-[#0075de]/50 rotate-1 bg-[#27272a]" : ""}`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                       <h4 className={`text-xs font-semibold ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5]"}`}>{task.title}</h4>
-                       <CheckCircle2 className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${task.status === "complete" ? "text-emerald-400" : "text-[#71717a]"}`} />
+                    <div className="flex items-start gap-2 mb-2">
+                       {(() => {
+                         const isComplete = task.status === "complete"
+                         const isBlocked = Boolean(
+                           task.quality_required ||
+                             ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                             ["submitted_for_review", "needs_rework"].includes(task.status)
+                         )
+                         return (
+                           <button
+                             type="button"
+                             disabled={isBlocked || updatingTaskId === task.id}
+                             aria-label={isComplete ? "Mark incomplete" : "Mark complete"}
+                             title={isBlocked ? "Quality approval required" : isComplete ? "Mark incomplete" : "Mark complete"}
+                             onClick={(e) => {
+                               e.preventDefault()
+                               e.stopPropagation()
+                               void onToggleComplete(task)
+                             }}
+                             className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de] ${
+                               isComplete ? "border-emerald-500 bg-emerald-500 text-white" : "border-[#71717a] bg-transparent hover:border-emerald-500"
+                             } ${isBlocked ? "cursor-not-allowed opacity-60" : ""} ${updatingTaskId === task.id ? "opacity-50" : ""}`}
+                           >
+                             {isComplete ? <CheckCircle2 className="h-3 w-3 text-white" /> : null}
+                           </button>
+                         )
+                       })()}
+                       <h4 className={`flex-1 text-xs font-semibold ${task.status === "complete" ? "text-[#71717a] line-through" : "text-[#f4f4f5]"}`}>{task.title}</h4>
+                       {(() => {
+                         const blocked = Boolean(
+                           task.quality_required ||
+                             ["submitted", "needs_rework", "approved", "approved_with_notes"].includes(task.quality_state || "") ||
+                             ["submitted_for_review", "needs_rework"].includes(task.status)
+                         )
+                         return blocked ? <ShieldCheck className="h-3 w-3 shrink-0 text-amber-400 mt-0.5" /> : null
+                       })()}
                     </div>
                     {task.project && (
                        <div className="flex items-center gap-1.5 mb-2.5">
@@ -660,12 +759,15 @@ function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTa
                     )}
                     <div className="flex items-center justify-between">
                        <div className="flex items-center gap-2">
-                         {task.due_date && (
-                            <div className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) ? "text-rose-400 bg-rose-500/10 border-rose-500/30" : "text-[#a1a1aa] border-[#3f3f46]"}`}>
-                               <Clock className="w-3 h-3" />
-                               {format(new Date(task.due_date), "MMM d")}
-                            </div>
-                         )}
+                          {task.due_date && (() => {
+                            const due = getDueDatePresentation(task.due_date)
+                            return (
+                              <div className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${due.className}`}>
+                                <Clock className="w-3 h-3" />
+                                {due.label}
+                              </div>
+                            )
+                          })()}
                          {task.priority && (
                             <div className={`w-1.5 h-1.5 rounded-full ${task.priority === "high" ? "bg-rose-500" : task.priority === "medium" ? "bg-amber-500" : "bg-blue-500"}`} />
                          )}

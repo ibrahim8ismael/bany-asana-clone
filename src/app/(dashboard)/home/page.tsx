@@ -2,8 +2,8 @@ import { prisma } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import Link from "next/link"
-import { format } from "date-fns"
-import { Calendar, CheckCircle, Clock, Flag, FolderOpen, Zap } from "lucide-react"
+import { CheckCircle, Clock, Flag, FolderOpen, Zap } from "lucide-react"
+import { DueDateBadge } from "@/components/due-date-badge"
 import { getActiveWorkspaceForUser, isSuperAdminUser, projectAccessWhere, taskAccessWhere } from "@/lib/permissions"
 
 export default async function HomePage() {
@@ -148,12 +148,7 @@ export default async function HomePage() {
                 <div key={task.id} className="flex items-center gap-3 py-3 px-4 hover:bg-[#27272a] transition-colors">
                   <div className="w-2 h-2 rounded-full bg-[#0075de] shrink-0" />
                   <span className="flex-1 text-xs font-medium text-[#f4f4f5] truncate">{task.title}</span>
-                  {task.due_date && (
-                    <span className="flex items-center gap-1 text-[11px] text-[#a1a1aa] shrink-0">
-                      <Calendar className="w-3 h-3" />
-                      {format(new Date(task.due_date), "MMM d")}
-                    </span>
-                  )}
+                  {task.due_date && <DueDateBadge dueDate={task.due_date} />}
                   {(task.project || task.client) && (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#18181b] border border-[#3f3f46] text-[#a1a1aa] shrink-0 truncate max-w-[120px]">
                       {task.project?.name || task.client?.name}
