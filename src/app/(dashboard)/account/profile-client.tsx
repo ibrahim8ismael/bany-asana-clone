@@ -10,6 +10,7 @@ import { submitSuperAdminRequest } from "@/actions/admin-actions"
 import { updateCurrentUserPassword, updateCurrentUserProfile } from "@/actions/account-actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 
 interface AccountUser {
   id: string
@@ -341,11 +342,11 @@ export default function AccountClient({ user, canImport }: { user: AccountUser; 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-[#a1a1aa]">Current password</label>
-              <Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" />
+              <PasswordInput value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" placeholder="Enter current password" />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-[#a1a1aa]">New password</label>
-              <Input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" />
+              <PasswordInput value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="bg-[#18181b] border-[#3f3f46] text-xs text-[#f4f4f5] focus:border-[#0075de]" placeholder="Enter new password" />
             </div>
           </div>
 

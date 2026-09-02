@@ -1,11 +1,14 @@
 "use server"
 
+import bcrypt from "bcryptjs"
 import { getServerSession } from "next-auth"
 import { revalidatePath } from "next/cache"
 import { authOptions } from "@/lib/auth"
 import { isSuperAdminUser } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { isWorkspaceAdmin, isWorkspaceRole } from "@/lib/project-membership"
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 async function getSessionUserId() {
   const session = await getServerSession(authOptions)
@@ -310,6 +313,93 @@ export async function removeWorkspaceMember(data: { workspaceId: string; userId:
   revalidatePath("/admin/members")
   revalidatePath("/", "layout")
   return { success: true }
+}
+
+export async function updateWorkspaceMemberCredentials(data: {
+  workspaceId: string
+  userId: string
+  email?: string
+  password?: string
+}) {
+  try {
+    const authorization = await getWorkspaceAdminContext(data?.workspaceId)
+    if ("error" in authorization) return authorization
+    const { workspace, superAdmin } = authorization
+
+    const targetUserId = typeof data.userId === "string" ? data.userId.trim() : ""
+    if (!targetUserId) return { error: "User is required" }
+
+    const rawEmail = typeof data.email === "string" ? data.email.trim().toLowerCase() : ""
+    const rawPassword = typeof data.password === "string" ? data.password : ""
+
+    const wantsEmail = rawEmail.length > 0
+    const wantsPassword = rawPassword.length > 0
+
+    if (!wantsEmail && !wantsPassword) {
+      return { error: "Provide a new email or password" }
+    }
+
+    if (wantsEmail && !emailPattern.test(rawEmail)) {
+      return { error: "Enter a valid email address" }
+    }
+    if (wantsPassword && rawPassword.length < 8) {
+      return { error: "Password must be at least 8 characters" }
+    }
+
+    const membership = await prisma.workspaceMember.findFirst({
+      where: { workspace_id: data.workspaceId, user_id: targetUserId },
+      select: { id: true, role: true },
+    })
+    if (!membership) return { error: "Membership not found" }
+
+    // Workspace isolation + privilege checks
+    if (workspace.owner_id === targetUserId && !superAdmin && authorization.userId !== targetUserId) {
+      return { error: "Only super admin can change the workspace owner credentials" }
+    }
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true, is_super_admin: true },
+    })
+    if (!targetUser) return { error: "User not found" }
+
+    if (targetUser.is_super_admin && !superAdmin) {
+      return { error: "Only super admin can change a super admin account" }
+    }
+
+    // Email uniqueness
+    if (wantsEmail && rawEmail !== targetUser.email.toLowerCase()) {
+      const existing = await prisma.user.findUnique({ where: { email: rawEmail } })
+      if (existing) return { error: "An account with this email already exists" }
+    }
+
+    const updateData: { email?: string; password_hash?: string } = {}
+    if (wantsEmail) updateData.email = rawEmail
+    if (wantsPassword) updateData.password_hash = await bcrypt.hash(rawPassword, 10)
+
+    await prisma.user.update({
+      where: { id: targetUserId },
+      data: updateData,
+    })
+
+    const changed: string[] = []
+    if (wantsEmail) changed.push("email")
+    if (wantsPassword) changed.push("password")
+    await notifyUser(
+      targetUserId,
+      "Account updated by admin",
+      `Your ${changed.join(" and ")} was updated by a workspace admin in ${workspace.name}.`,
+      membership.id,
+    )
+
+    revalidatePath("/admin/members")
+    revalidatePath("/account")
+    revalidatePath("/", "layout")
+    return { success: true }
+  } catch (error: unknown) {
+    console.error("Failed to update member credentials:", error)
+    return { error: error instanceof Error ? error.message : "Failed to update credentials" }
+  }
 }
 
 export async function addWorkspaceMember(data: {

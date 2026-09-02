@@ -9,6 +9,7 @@ import AuthFormShell from "@/components/auth/auth-form-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PasswordInput } from "@/components/ui/password-input"
 
 type LoginFieldErrors = {
   email?: string
@@ -146,9 +147,8 @@ export default function LoginForm({
               Private and secure
             </div>
           </div>
-          <Input
+          <PasswordInput
             id="password"
-            type="password"
             autoComplete="current-password"
             value={password}
             onChange={(event) => {

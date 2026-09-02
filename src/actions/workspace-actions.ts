@@ -60,6 +60,12 @@ export async function switchWorkspace(data: { workspaceId: string }) {
 export async function createWorkspace(data: { name: string }) {
   try {
     const userId = await requireUserId()
+    // Single-workspace mode: only super admins can create additional workspaces.
+    // Regular users join the company workspace via signup/invite.
+    const superAdmin = await isSuperAdminUser(userId)
+    if (!superAdmin) {
+      return { error: "Creating additional workspaces is disabled in single-workspace mode. Contact a super admin." }
+    }
     const name = normalizeWorkspaceName(data?.name)
     if (!name) return { error: "Workspace name must be between 2 and 80 characters" }
 

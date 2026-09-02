@@ -1,0 +1,16 @@
+# Local development compose override — NOT auto-loaded
+# Use: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# This keeps production `docker-compose.yml` (3005, external volume) clean
+# while giving laptop devs localhost:3000 and auto-created volumes.
+services:
+  web:
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NEXTAUTH_URL: http://localhost:3000
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+# volumes are already auto-created in docker-compose.yml (no external:true)
+# so no volume override needed
