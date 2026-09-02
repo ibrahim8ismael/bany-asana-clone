@@ -387,19 +387,21 @@ export default function Sidebar({
                 </div>
 
                 <div className="mt-1 border-t border-[#3f3f46] pt-1">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setIsWorkspaceMenuOpen(false)
-                      setWorkspaceError("")
-                      setIsCreateWorkspaceOpen(true)
-                    }}
-                    className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Create workspace
-                  </button>
+                  {isSuperAdmin ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsWorkspaceMenuOpen(false)
+                        setWorkspaceError("")
+                        setIsCreateWorkspaceOpen(true)
+                      }}
+                      className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-[#a1a1aa] transition-colors hover:bg-[#27272a] hover:text-[#f4f4f5]"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Create workspace
+                    </button>
+                  ) : null}
                   {workspace?.canAdmin ? (
                     <button
                       type="button"

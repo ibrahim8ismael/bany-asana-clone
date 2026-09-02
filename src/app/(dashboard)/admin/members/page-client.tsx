@@ -6,15 +6,18 @@ import { format } from "date-fns"
 import { CheckCircle2, ShieldCheck, Users, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { PasswordInput } from "@/components/ui/password-input"
 import {
   removeWorkspaceMember,
   reviewSuperAdminRequest,
   revokeSuperAdmin,
+  updateWorkspaceMemberCredentials,
   updateWorkspaceMemberRole,
 } from "@/actions/admin-actions"
 import AddMemberModal from "@/components/add-member-modal"
 import type { WorkspaceRole } from "@/lib/project-membership"
-import { Plus } from "lucide-react"
+import { Pencil, Plus } from "lucide-react"
 
 interface RequestItem {
   id: string
@@ -84,6 +87,10 @@ export default function AdminMembersClient({
   const [pending, startTransition] = useTransition()
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
+  const [editingMember, setEditingMember] = useState<{ workspaceId: string; userId: string; full_name: string; email: string } | null>(null)
+  const [editEmail, setEditEmail] = useState("")
+  const [editPassword, setEditPassword] = useState("")
+  const [editError, setEditError] = useState("")
 
   const pendingRequests = requests.filter((request) => request.status === "pending")
 
@@ -93,6 +100,49 @@ export default function AdminMembersClient({
       const result = await action()
       setMessage(result.success ? "Saved successfully." : result.error || "Action failed")
       if (result.success) router.refresh()
+    })
+  }
+
+  const openEdit = (workspaceId: string, membership: WorkspaceItem["members"][number]) => {
+    setEditingMember({ workspaceId, userId: membership.user.id, full_name: membership.user.full_name, email: membership.user.email })
+    setEditEmail(membership.user.email)
+    setEditPassword("")
+    setEditError("")
+  }
+
+  const handleEditSubmit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!editingMember) return
+    const normalizedEmail = editEmail.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setEditError("Email is required")
+      return
+    }
+    if (editPassword && editPassword.length < 8) {
+      setEditError("Password must be at least 8 characters")
+      return
+    }
+    const emailChanged = normalizedEmail !== editingMember.email.toLowerCase()
+    const passwordChanged = editPassword.length > 0
+    if (!emailChanged && !passwordChanged) {
+      setEditError("Change email or provide a new password")
+      return
+    }
+    setEditError("")
+    runAction(async () => {
+      const result = (await updateWorkspaceMemberCredentials({
+        workspaceId: editingMember.workspaceId,
+        userId: editingMember.userId,
+        email: emailChanged ? normalizedEmail : undefined,
+        password: passwordChanged ? editPassword : undefined,
+      })) as { success?: boolean; error?: string }
+      if (result.success) {
+        setEditingMember(null)
+        setEditPassword("")
+      } else if (result.error) {
+        setEditError(result.error)
+      }
+      return result
     })
   }
 
@@ -261,6 +311,15 @@ export default function AdminMembersClient({
                           </select>
                           <Button
                             variant="outline"
+                            disabled={pending}
+                            onClick={() => openEdit(workspace.id, membership)}
+                            className="rounded-md border border-[#3f3f46] bg-[#202023] px-2.5 py-1 text-xs font-semibold text-[#f4f4f5] transition-colors hover:bg-[#27272a] disabled:opacity-50"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            Edit
+                          </Button>
+                           <Button
+                            variant="outline"
                             disabled={pending || membership.role === "owner"}
                             onClick={() => runAction(() => removeWorkspaceMember({ workspaceId: workspace.id, userId: membership.user.id }))}
                             className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
@@ -283,6 +342,42 @@ export default function AdminMembersClient({
         workspaces={workspaces.map(w => ({ id: w.id, name: w.name }))}
         initialWorkspaceId={selectedWorkspaceId || undefined}
       />
+
+      <Dialog open={Boolean(editingMember)} onOpenChange={(open) => { if (!open) { setEditingMember(null); setEditError("") } }}>
+        <DialogContent className="border-white/10 bg-[#1e1f21] text-white sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Edit member credentials</DialogTitle>
+            <p className="text-xs text-white/45">Update email and/or password for {editingMember?.full_name}. Only admins and super admins can do this.</p>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            {editError ? <p className="rounded-md border border-red-500/20 bg-red-500/10 p-2.5 text-xs text-red-300">{editError}</p> : null}
+            <label className="block space-y-1.5 text-xs">
+              <span className="font-medium text-white/80">Email</span>
+              <Input
+                type="email"
+                required
+                value={editEmail}
+                onChange={(event) => setEditEmail(event.target.value)}
+                className="h-9 border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30"
+                placeholder="member@company.com"
+              />
+            </label>
+            <label className="block space-y-1.5 text-xs">
+              <span className="font-medium text-white/80">New password <span className="font-normal text-white/40">(leave blank to keep existing)</span></span>
+              <PasswordInput
+                value={editPassword}
+                onChange={(event) => setEditPassword(event.target.value)}
+                className="h-9 border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30"
+                placeholder="At least 8 characters"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => { setEditingMember(null); setEditError("") }} className="h-9 border-white/10 text-xs text-white/70 hover:bg-white/5">Cancel</Button>
+              <Button type="submit" disabled={pending} className="h-9 bg-blue-600 px-5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50">{pending ? "Saving..." : "Save changes"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

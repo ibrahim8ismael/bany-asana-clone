@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PasswordInput } from "@/components/ui/password-input"
 import { addWorkspaceMember } from "@/actions/admin-actions"
 
 interface AddMemberModalProps {
@@ -108,9 +109,8 @@ export default function AddMemberModal({ isOpen, onClose, workspaces, initialWor
 
           <div className="space-y-2">
             <Label htmlFor="password">Initial Password (Optional)</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               placeholder="Leave blank for random"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}

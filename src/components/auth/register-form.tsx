@@ -9,6 +9,7 @@ import AuthFormShell from "@/components/auth/auth-form-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PasswordInput } from "@/components/ui/password-input"
 
 type RegisterFieldErrors = {
   fullName?: string
@@ -105,7 +106,7 @@ export default function RegisterForm({ callbackUrl }: { callbackUrl: string }) {
     <AuthFormShell
       eyebrow="New Account"
       title="Create your TaskFlow account"
-      description="Join the workspace in a few seconds. We will create your personal workspace automatically so you can start moving work forward right away."
+      description="Join the company workspace in a few seconds. Your account will be added to the shared workspace so you can start moving work forward right away."
       footer={
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <span>Already set up?</span>
@@ -188,9 +189,8 @@ export default function RegisterForm({ callbackUrl }: { callbackUrl: string }) {
               Quick setup
             </div>
           </div>
-          <Input
+          <PasswordInput
             id="register-password"
-            type="password"
             autoComplete="new-password"
             value={password}
             onChange={(event) => {
@@ -215,7 +215,7 @@ export default function RegisterForm({ callbackUrl }: { callbackUrl: string }) {
         </div>
 
         <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] px-3.5 py-2.5 text-xs text-[#a1a1aa]">
-          Your workspace is created automatically after signup.
+          You will be added to the company workspace automatically after signup. A workspace admin can invite teammates.
         </div>
 
         <Button

@@ -5,9 +5,10 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      # The separately managed Nginx container reaches this host port through
-      # the Docker bridge gateway (172.18.0.1), not through host loopback.
-      - "172.18.0.1:3005:3000"
+      # Local dev: 127.0.0.1:3005; production nginx reaches via 0.0.0.0 (bridge gateway 172.18.0.1 also works)
+      # Changed from 172.18.0.1:3005 to 0.0.0.0:3005 so `docker compose up` works on fresh laptops
+      # where 172.18.0.1 does not exist. Production firewall should still restrict 3005 if needed.
+      - "3005:3000"
     env_file:
       - .env
     environment:
@@ -80,7 +81,6 @@ services:
 
 volumes:
   postgres_data:
-    external: true
     name: asana_postgres_data
   uploads_data:
     name: asana_uploads

@@ -13,12 +13,23 @@ function toBaseSlug(value: string) {
   return base || "workspace"
 }
 
-async function getUniqueWorkspaceSlug(base: string) {
+async function findCompanyWorkspaceTx(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) {
+  const envSlug = process.env.COMPANY_WORKSPACE_SLUG?.trim() || process.env.DEFAULT_WORKSPACE_SLUG?.trim() || ""
+  if (envSlug) {
+    const bySlug = await tx.workspace.findUnique({ where: { slug: envSlug } })
+    if (bySlug) return bySlug
+  }
+  return tx.workspace.findFirst({ orderBy: [{ created_at: "asc" }, { id: "asc" }] })
+}
+
+async function getUniqueWorkspaceSlugTx(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  base: string,
+) {
   let candidate = base
   let counter = 1
-
   while (true) {
-    const existing = await prisma.workspace.findUnique({ where: { slug: candidate } })
+    const existing = await tx.workspace.findUnique({ where: { slug: candidate } })
     if (!existing) return candidate
     candidate = `${base}-${counter}`
     counter += 1
@@ -57,40 +68,58 @@ export async function POST(req: Request) {
     
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    const firstName = normalizedName.split(/\s+/)[0] || "My"
-    const workspaceName = `${firstName} Workspace`
-    const slug = await getUniqueWorkspaceSlug(toBaseSlug(workspaceName))
-
     const user = await prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
         data: {
           full_name: normalizedName,
           email: normalizedEmail,
           password_hash: hashedPassword,
-          avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(normalizedName)}&background=random`
-        }
-      })
-
-      const workspace = await tx.workspace.create({
-        data: {
-          name: workspaceName,
-          slug,
-          owner_id: createdUser.id,
+          avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(normalizedName)}&background=random`,
         },
       })
 
-      await tx.workspaceMember.create({
-        data: {
-          workspace_id: workspace.id,
-          user_id: createdUser.id,
-          role: "owner",
-        },
-      })
+      // Single-workspace mode: new signups join the company workspace.
+      // Primary workspace is looked up by env slug or oldest workspace.
+      const companyWorkspace = await findCompanyWorkspaceTx(tx)
 
-      await tx.user.update({
-        where: { id: createdUser.id },
-        data: { active_workspace_id: workspace.id },
-      })
+      if (companyWorkspace) {
+        await tx.workspaceMember.create({
+          data: {
+            workspace_id: companyWorkspace.id,
+            user_id: createdUser.id,
+            role: "member",
+          },
+        })
+
+        await tx.user.update({
+          where: { id: createdUser.id },
+          data: { active_workspace_id: companyWorkspace.id },
+        })
+      } else {
+        // Bootstrap: first user in a fresh database creates the company workspace as owner.
+        const workspaceName = "Company Workspace"
+        const slug = await getUniqueWorkspaceSlugTx(tx, toBaseSlug(workspaceName))
+        const workspace = await tx.workspace.create({
+          data: {
+            name: workspaceName,
+            slug,
+            owner_id: createdUser.id,
+          },
+        })
+
+        await tx.workspaceMember.create({
+          data: {
+            workspace_id: workspace.id,
+            user_id: createdUser.id,
+            role: "owner",
+          },
+        })
+
+        await tx.user.update({
+          where: { id: createdUser.id },
+          data: { active_workspace_id: workspace.id },
+        })
+      }
 
       return createdUser
     })
