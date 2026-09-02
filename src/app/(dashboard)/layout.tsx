@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { redirect } from "next/navigation"
@@ -5,6 +6,7 @@ import { prisma } from "@/lib/prisma"
 import Sidebar from "@/components/sidebar"
 import Topbar from "@/components/topbar"
 import { getSidebarData } from "@/lib/dashboard-data"
+import DashboardLoading from "./loading"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
@@ -42,7 +44,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           hasUnreadNotifications={unreadNotifications > 0}
         />
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#18181b]">
-          {children}
+          <Suspense fallback={<DashboardLoading />}>{children}</Suspense>
         </main>
       </div>
     </div>

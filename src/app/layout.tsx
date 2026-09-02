@@ -18,7 +18,9 @@ export const metadata: Metadata = {
   description: "Collaborative work management with project boards, timelines, calendars, and task workflows.",
 };
 
+import { Suspense } from "react";
 import AuthProvider from "@/components/auth-provider";
+import { TopProgress } from "@/components/ui/top-progress";
 
 export default function RootLayout({
   children,
@@ -32,7 +34,12 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-dvh flex-col overflow-x-hidden">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <Suspense fallback={null}>
+            <TopProgress />
+          </Suspense>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

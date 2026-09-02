@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { PROJECT_MEMBER_ROLES, WORKSPACE_ROLES, type ProjectRole, type WorkspaceRole } from "@/lib/project-membership"
@@ -11,14 +12,14 @@ function workspaceLevelForProjectLevel(level: ProjectAccessLevel): WorkspaceAcce
   return "view"
 }
 
-export async function isSuperAdminUser(userId: string) {
+export const isSuperAdminUser = cache(async (userId: string) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { is_super_admin: true },
   })
 
   return Boolean(user?.is_super_admin)
-}
+})
 
 const WORKSPACE_VIEW_ROLES: readonly WorkspaceRole[] = WORKSPACE_ROLES
 const WORKSPACE_WRITE_ROLES: readonly WorkspaceRole[] = WORKSPACE_ROLES
@@ -361,12 +362,12 @@ export async function getDefaultWorkspaceForUser(userId: string): Promise<{ id: 
   return getActiveWorkspaceForUser(userId)
 }
 
-export async function getActiveWorkspaceForUser(userId: string): Promise<{
+export const getActiveWorkspaceForUser = cache(async (userId: string): Promise<{
   id: string
   name: string
   slug: string
   owner_id: string
-} | null> {
+} | null> => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { active_workspace_id: true, is_super_admin: true },
@@ -407,7 +408,7 @@ export async function getActiveWorkspaceForUser(userId: string): Promise<{
   }
 
   return fallbackWorkspace
-}
+})
 
 export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
   const isSuperAdmin = await isSuperAdminUser(userId)

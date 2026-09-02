@@ -1,0 +1,1 @@
+export const COMPLETED_TASKS_PAGE_SIZE = 20

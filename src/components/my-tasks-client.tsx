@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { 
   LayoutList, 
@@ -30,10 +30,13 @@ import {
   DropResult 
 } from "@hello-pangea/dnd"
 import { addDays, addWeeks, isFuture, isPast, isSameDay, isToday, startOfWeek, subWeeks } from "date-fns"
-import { updateTask, updateTaskPosition, createSection, deleteSection, createTask } from "@/actions/server-actions"
+import { updateTask, updateTaskPosition, createSection, deleteSection, createTask, getCompletedTasksPage } from "@/actions/server-actions"
+import { COMPLETED_TASKS_PAGE_SIZE } from "@/lib/pagination"
 import { getDueDatePresentation } from "@/lib/due-date"
 import { syncTaskInSections } from "@/lib/task-sync"
 import { TASK_WORKFLOW_STAGES, type TaskWorkflowStageId, validateManualTaskTransition } from "@/lib/workflow"
+import { InlineLoader, Loader } from "@/components/ui/loader"
+import { useIntersectionObserver } from "@/hooks/use-intersection-observer"
 
 const TaskDrawer = dynamic(() => import("./task-drawer"), { ssr: false })
 
@@ -47,12 +50,15 @@ interface MyTasksClientProps {
   initialSections: any[]
   initialPendingReviewTasks: any[]
   initialReworkTasks: any[]
+  initialCompletedTasks: any[]
+  completedTotal: number
+  completedTotalPages: number
   userId: string
   userName: string
   canImport?: boolean
 }
 
-export default function MyTasksClient({ initialTasks, initialSections, initialPendingReviewTasks, initialReworkTasks, userId, userName, canImport = false }: MyTasksClientProps) {
+export default function MyTasksClient({ initialTasks, initialSections, initialPendingReviewTasks, initialReworkTasks, initialCompletedTasks, completedTotal, completedTotalPages, userId, userName, canImport = false }: MyTasksClientProps) {
   const allInitialTasks = useMemo(() => {
     const map = new Map();
     [...initialTasks, ...initialPendingReviewTasks, ...initialReworkTasks].forEach(t => map.set(t.id, t));
@@ -72,17 +78,61 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null)
   const searchParams = useSearchParams()
 
+  // Completed pagination state — 20 by 20 infinite
+  const [completedTasks, setCompletedTasks] = useState<any[]>(initialCompletedTasks)
+  const [completedPage, setCompletedPage] = useState(1)
+  const [completedTotalState, setCompletedTotalState] = useState(completedTotal)
+  const [completedTotalPagesState, setCompletedTotalPagesState] = useState(completedTotalPages)
+  const [loadingMoreCompleted, setLoadingMoreCompleted] = useState(false)
+  const [completedError, setCompletedError] = useState("")
+
+  // Keep completed pagination in sync when server props change (e.g., after revalidation)
+  useEffect(() => {
+    setCompletedTasks(initialCompletedTasks)
+    setCompletedTotalState(completedTotal)
+    setCompletedTotalPagesState(completedTotalPages)
+    setCompletedPage(1)
+  }, [initialCompletedTasks, completedTotal, completedTotalPages])
+
+  const hasMoreCompleted = completedPage < completedTotalPagesState
+
   const syncQueue = (items: any[], updatedTask: any, keep: boolean) => {
     const exists = items.some((item) => item.id === updatedTask.id)
     if (!keep) return items.filter((item) => item.id !== updatedTask.id)
     return exists ? items.map((item) => item.id === updatedTask.id ? updatedTask : item) : [updatedTask, ...items]
   }
 
-  const applyTaskUpdate = (updatedTask: any) => {
-    setTasks((previous) => syncQueue(previous, updatedTask, true))
+  const applyTaskUpdate = useCallback((updatedTask: any) => {
+    const isNowComplete = updatedTask.status === "complete"
+    if (isNowComplete) {
+      // Move to completed list, remove from active
+      setTasks((previous) => previous.filter((item) => item.id !== updatedTask.id))
+      setCompletedTasks((prev) => {
+        const exists = prev.some((t) => t.id === updatedTask.id)
+        if (exists) return prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+        return [updatedTask, ...prev]
+      })
+      setCompletedTotalState((prev) => {
+        const exists = completedTasks.some((t) => t.id === updatedTask.id)
+        return exists ? prev : prev + 1
+      })
+    } else {
+      // Reopened — move from completed to active
+      setCompletedTasks((prev) => prev.filter((item) => item.id !== updatedTask.id))
+      setCompletedTotalState((prev) => {
+        const wasCompleted = completedTasks.some((t) => t.id === updatedTask.id)
+        return wasCompleted ? Math.max(0, prev - 1) : prev
+      })
+      setTasks((previous) => syncQueue(previous, updatedTask, true))
+    }
     setSections((prev) => syncTaskInSections(prev, updatedTask, { assigneeId: userId }))
     setSelectedTask((current: any) => current?.id === updatedTask.id ? updatedTask : current)
-  }
+  }, [completedTasks, userId])
+
+  // Recompute totalPages whenever total changes
+  useEffect(() => {
+    setCompletedTotalPagesState(Math.max(1, Math.ceil(completedTotalState / COMPLETED_TASKS_PAGE_SIZE)))
+  }, [completedTotalState])
 
   const handleToggleComplete = async (task: any) => {
     const nextStatus = task.status === "complete" ? "incomplete" : "complete"
@@ -100,10 +150,24 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
     setActionError("")
     setUpdatingTaskId(task.id)
     const previous = task
-    applyTaskUpdate({ ...task, status: nextStatus })
+    const wasComplete = task.status === "complete"
+    // Optimistic
+    applyTaskUpdate({ ...task, status: nextStatus, completed_at: nextStatus === "complete" ? new Date().toISOString() : null })
     const result = await updateTask(task.id, { status: nextStatus })
     if (result.error) {
-      applyTaskUpdate(previous)
+      // rollback
+      if (wasComplete) {
+        // was complete -> we optimistically reopened (moved to tasks). Rollback to complete
+        setTasks((prev) => prev.filter((t) => t.id !== task.id))
+        setCompletedTasks((prev) => {
+          if (prev.some((t) => t.id === task.id)) return prev
+          return [previous, ...prev]
+        })
+      } else {
+        setCompletedTasks((prev) => prev.filter((t) => t.id !== task.id))
+        setTasks((prev) => syncQueue(prev, previous, true))
+      }
+      setSelectedTask((current: any) => (current?.id === task.id ? previous : current))
       setActionError(result.error)
     } else if (result.success && result.task) {
       applyTaskUpdate(result.task)
@@ -111,22 +175,53 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
     setUpdatingTaskId(null)
   }
 
+  const handleLoadMoreCompleted = useCallback(async () => {
+    if (loadingMoreCompleted || !hasMoreCompleted) return
+    setLoadingMoreCompleted(true)
+    setCompletedError("")
+    const nextPage = completedPage + 1
+    const result = await getCompletedTasksPage({ page: nextPage })
+    if (!("success" in result) || !result.success) {
+      setCompletedError((result as any).error || "Failed to load more completed tasks")
+      setLoadingMoreCompleted(false)
+      return
+    }
+    const newTasks = result.data.tasks as any[]
+    setCompletedTasks((prev) => {
+      const existingIds = new Set(prev.map((t) => t.id))
+      const deduped = newTasks.filter((t) => !existingIds.has(t.id))
+      return [...prev, ...deduped]
+    })
+    setCompletedPage(nextPage)
+    setCompletedTotalState(result.data.total)
+    setCompletedTotalPagesState(result.data.totalPages)
+    setLoadingMoreCompleted(false)
+  }, [completedPage, hasMoreCompleted, loadingMoreCompleted])
+
+  const sentinelRef = useIntersectionObserver({
+    enabled: hasMoreCompleted && !loadingMoreCompleted,
+    onIntersect: handleLoadMoreCompleted,
+    rootMargin: "400px",
+  })
+
   useEffect(() => {
     const taskId = searchParams?.get("taskId")
     if (!taskId || selectedTask) return
 
-    const taskFromQuery = tasks.find((task) => task.id === taskId)
+    const taskFromQuery =
+      tasks.find((task) => task.id === taskId) ||
+      completedTasks.find((task) => task.id === taskId)
     if (taskFromQuery) {
       const timeoutId = window.setTimeout(() => {
         setSelectedTask(taskFromQuery)
       }, 0)
       return () => window.clearTimeout(timeoutId)
     }
-  }, [searchParams, selectedTask, tasks])
+  }, [searchParams, selectedTask, tasks, completedTasks])
 
   const visibleTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
-      if (filterBy === "completed") return task.status === "complete"
+      if (filterBy === "completed") return false
       if (filterBy === "today") return task.due_date ? isToday(new Date(task.due_date)) : false
       if (filterBy === "upcoming") return task.due_date ? isFuture(new Date(task.due_date)) && !isToday(new Date(task.due_date)) : false
       if (filterBy === "overdue") return task.due_date ? isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) && task.status !== "complete" : false
@@ -153,10 +248,38 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
     return sorted
   }, [filterBy, sortBy, tasks])
 
+  const completedVisible = useMemo(() => {
+    if (filterBy === "completed") return completedTasks
+    // Completed tasks are not shown under these filters (matches previous behavior where complete excluded from overdue)
+    if (filterBy === "today" || filterBy === "upcoming" || filterBy === "overdue") {
+      return []
+    }
+
+    const sorted = [...completedTasks]
+    // Apply same sort selection to completed list for consistency
+    if (sortBy === "title") sorted.sort((a, b) => a.title.localeCompare(b.title))
+    else if (sortBy === "priority") {
+      const order = { high: 0, medium: 1, low: 2, none: 3 }
+      sorted.sort((a, b) => {
+        const la = order[(a.priority || "none") as keyof typeof order]
+        const ra = order[(b.priority || "none") as keyof typeof order]
+        return la - ra
+      })
+    } else if (sortBy === "due_date") {
+      sorted.sort((a, b) => {
+        const la = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER
+        const ra = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER
+        return la - ra
+      })
+    }
+    // "recent" keeps server order (completed_at desc) — already sorted
+    return sorted
+  }, [completedTasks, filterBy, sortBy])
+
   // Grouping Logic
   const groupedTasks = useMemo(() => {
-    const incomplete = visibleTasks.filter(t => t.status !== "complete")
-    const completed = visibleTasks.filter(t => t.status === "complete")
+    const incomplete = visibleTasks
+    const completed = completedVisible
 
     if (groupBy === "priority") {
       return [
@@ -201,12 +324,12 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
       { id: "upcoming", name: "Upcoming", icon: CalendarIcon, color: "text-amber-400", tasks: incomplete.filter(t => t.due_date && isFuture(new Date(t.due_date)) && !isToday(new Date(t.due_date))) },
     ]
 
-    if (completed.length > 0) {
+    if (completed.length > 0 || completedTotalState > 0) {
       standardGroups.push({ id: "completed", name: "Completed", icon: CheckCircle2, color: "text-emerald-400", tasks: completed })
     }
 
     return standardGroups
-  }, [visibleTasks, groupBy, sections])
+  }, [visibleTasks, completedVisible, groupBy, sections, completedTotalState])
 
 
   const onDragEnd = async (result: DropResult) => {
@@ -270,7 +393,8 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
       const result = await updateTask(draggableId, { priority: newPriority as any })
       if (result.success && result.task) applyTaskUpdate(result.task)
     } else if (groupBy === "status") {
-      const task = tasks.find((entry) => entry.id === draggableId)
+      const allTasks = [...tasks, ...completedTasks]
+      const task = allTasks.find((entry) => entry.id === draggableId)
       if (!task) return
       const transitionError = validateManualTaskTransition({
         from: task.status,
@@ -477,6 +601,27 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
                   lockQualityStatus={groupBy === "status"}
                 />
               ))}
+              {/* Completed infinite sentinel + loader for list view */}
+              {(groupBy === "status" || groupBy === "none") && completedVisible.length > 0 ? (
+                <div className="py-2">
+                  {loadingMoreCompleted ? (
+                    <InlineLoader label="Loading more completed tasks..." />
+                  ) : hasMoreCompleted ? (
+                    <>
+                      <div ref={sentinelRef as any} className="h-1" aria-hidden />
+                      <button
+                        onClick={handleLoadMoreCompleted}
+                        className="mx-auto mt-2 flex h-8 items-center gap-2 rounded-full border border-[#3f3f46] bg-[#202023] px-4 text-xs font-semibold text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#f4f4f5]"
+                      >
+                        Load more ({completedTasks.length} / {completedTotalState})
+                      </button>
+                    </>
+                  ) : completedTasks.length > 0 ? (
+                    <p className="text-center text-xs text-[#71717a]">All completed tasks loaded ({completedTotalState})</p>
+                  ) : null}
+                  {completedError ? <p className="mt-2 text-center text-xs text-rose-400">{completedError}</p> : null}
+                </div>
+              ) : null}
               {groupBy === "custom" && (
                 <AddSectionButton 
                   isAdding={isAddingSection} 
@@ -499,6 +644,7 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
                   const workflowStage = groupBy === "status"
                     ? TASK_WORKFLOW_STAGES.find((stage) => stage.id === section.id)
                     : null
+                  const isCompleteColumn = section.id === "complete"
                   return (
                     <BoardColumn
                       key={section.id}
@@ -512,6 +658,15 @@ export default function MyTasksClient({ initialTasks, initialSections, initialPe
                       })}
                       canAddTask={!workflowStage || workflowStage.manualTransition}
                       addTaskLabel={`Add task to ${section.name}`}
+                      // Infinite props for complete column
+                      isCompleteColumn={isCompleteColumn}
+                      sentinelRef={isCompleteColumn ? (sentinelRef as any) : undefined}
+                      hasMore={isCompleteColumn ? hasMoreCompleted : false}
+                      isLoadingMore={isCompleteColumn ? loadingMoreCompleted : false}
+                      onLoadMore={isCompleteColumn ? handleLoadMoreCompleted : undefined}
+                      totalCount={isCompleteColumn ? completedTotalState : undefined}
+                      loadedCount={isCompleteColumn ? completedTasks.length : undefined}
+                      loadError={isCompleteColumn ? completedError : undefined}
                     />
                   )
                 })}
@@ -666,13 +821,13 @@ function ListSection({ section, onTaskClick, onDeleteSection, onToggleComplete, 
   )
 }
 
-function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTaskLabel, onToggleComplete, updatingTaskId }: any) {
+function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTaskLabel, onToggleComplete, updatingTaskId, isCompleteColumn, sentinelRef, hasMore, isLoadingMore, onLoadMore, totalCount, loadedCount, loadError }: any) {
   return (
     <div className="flex min-h-[360px] w-[calc(100vw-3rem)] shrink-0 flex-col rounded-xl border border-[#3f3f46] bg-[#202023] sm:w-[300px]">
       <div className="p-3 border-b border-[#3f3f46] flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
            <h3 className="text-xs font-bold uppercase tracking-wider text-[#f4f4f5]">{section.name}</h3>
-           <span className="text-[10px] font-bold text-[#a1a1aa] bg-[#18181b] px-1.5 py-0.5 rounded-full">{section.tasks.length}</span>
+           <span className="text-[10px] font-bold text-[#a1a1aa] bg-[#18181b] px-1.5 py-0.5 rounded-full">{section.tasks.length}{isCompleteColumn && typeof totalCount === "number" ? ` / ${totalCount}` : ""}</span>
         </div>
         <div className="flex items-center gap-1">
           {canAddTask ? (
@@ -781,7 +936,27 @@ function BoardColumn({ section, onTaskClick, onAddTask, canAddTask = true, addTa
               </Draggable>
             ))}
             {provided.placeholder}
-            {canAddTask ? (
+            {isCompleteColumn && hasMore ? <div ref={sentinelRef} className="h-1" aria-hidden /> : null}
+            {isCompleteColumn ? (
+              <div className="pt-1">
+                {isLoadingMore ? (
+                  <InlineLoader label="Loading..." />
+                ) : hasMore ? (
+                  <button
+                    type="button"
+                    onClick={onLoadMore}
+                    className="w-full py-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-[#a1a1aa] hover:text-[#f4f4f5] border border-dashed border-[#3f3f46] hover:border-[#0075de]/50 rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0075de]"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-[#0075de]" />
+                    Load more ({loadedCount} / {totalCount})
+                  </button>
+                ) : loadedCount > 0 ? (
+                  <p className="py-2 text-center text-[10px] text-[#71717a]">All caught up</p>
+                ) : null}
+                {loadError ? <p className="mt-1 text-center text-xs text-rose-400">{loadError}</p> : null}
+              </div>
+            ) : null}
+            {canAddTask && !isCompleteColumn ? (
               <button
                 type="button"
                 onClick={onAddTask}

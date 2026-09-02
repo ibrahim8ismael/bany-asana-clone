@@ -2387,6 +2387,60 @@ export async function getUserClients() {
 }
 
 const CLIENT_TASK_PAGE_SIZE = 50
+const COMPLETED_TASKS_PAGE_SIZE = 20
+
+export async function getCompletedTasksPage(input: { page?: number }) {
+  try {
+    const userId = await getSessionUserId()
+    if (!userId) return { success: false as const, error: "Unauthorized" }
+    const page = Number.isInteger(input.page) ? Math.max(1, input.page || 1) : 1
+
+    const [activeWorkspace, superAdmin] = await Promise.all([
+      getActiveWorkspaceForUser(userId),
+      isSuperAdminUser(userId),
+    ])
+    if (!activeWorkspace) return { success: false as const, error: "Not found" }
+
+    const baseWhere: Prisma.TaskWhereInput = {
+      AND: [
+        taskAccessWhere(userId, "view", superAdmin),
+        { workspace_id: activeWorkspace.id },
+        {
+          OR: [
+            { assignee_id: userId },
+            { creator_id: userId, project_id: null, client_id: null },
+          ],
+        },
+        { archived: false, status: "complete" },
+      ],
+    }
+
+    const [total, rows] = await prisma.$transaction([
+      prisma.task.count({ where: baseWhere }),
+      prisma.task.findMany({
+        where: baseWhere,
+        orderBy: [{ completed_at: "desc" }, { updated_at: "desc" }, { id: "asc" }],
+        skip: (page - 1) * COMPLETED_TASKS_PAGE_SIZE,
+        take: COMPLETED_TASKS_PAGE_SIZE,
+        include: taskInclude,
+      }),
+    ])
+
+    return {
+      success: true as const,
+      data: {
+        page,
+        pageSize: COMPLETED_TASKS_PAGE_SIZE,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / COMPLETED_TASKS_PAGE_SIZE)),
+        tasks: rows,
+      },
+    }
+  } catch (error) {
+    console.error("Failed to get completed tasks page:", error)
+    return { success: false as const, error: "Completed tasks could not be loaded" }
+  }
+}
 
 interface ClientTaskAccessContext {
   client: {

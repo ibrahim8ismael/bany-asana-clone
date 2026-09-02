@@ -14,76 +14,67 @@ export default async function HomePage() {
     ? await Promise.all([getActiveWorkspaceForUser(userId), isSuperAdminUser(userId)])
     : [null, false]
 
-  const myTasks = userId && activeWorkspace
-    ? await prisma.task.findMany({
-        where: {
-          AND: [
-            taskAccessWhere(userId, "view", superAdmin),
-            { workspace_id: activeWorkspace.id },
-            { assignee_id: userId, status: { not: "complete" } },
-          ],
-        },
-        include: { project: true, client: true },
-        orderBy: { due_date: "asc" },
-        take: 5,
-      })
-    : []
-
-  const upcomingTasks = userId && activeWorkspace
-    ? await prisma.task.count({
-        where: {
-          AND: [
-            taskAccessWhere(userId, "view", superAdmin),
-            { workspace_id: activeWorkspace.id },
-            { assignee_id: userId, status: { not: "complete" } },
-          ],
-        },
-      })
-    : 0
-
-  const projects = userId && activeWorkspace
-    ? await prisma.project.findMany({
-        where: {
-          workspace_id: activeWorkspace.id,
-          archived: false,
-          ...projectAccessWhere(userId, "view", superAdmin),
-        },
-        include: { sections: { include: { _count: { select: { tasks: true } } } } },
-        orderBy: { updated_at: "desc" },
-        take: 6,
-      })
-    : []
-
-  const overdueTasks = userId && activeWorkspace
-    ? await prisma.task.count({
-        where: {
-          AND: [
-            taskAccessWhere(userId, "view", superAdmin),
-            { workspace_id: activeWorkspace.id },
-            {
-              assignee_id: userId,
-              status: { not: "complete" },
-              due_date: { lt: new Date() },
+  const [myTasks, upcomingTasks, projects, overdueTasks, completedToday] =
+    userId && activeWorkspace
+      ? await Promise.all([
+          prisma.task.findMany({
+            where: {
+              AND: [
+                taskAccessWhere(userId, "view", superAdmin),
+                { workspace_id: activeWorkspace.id },
+                { assignee_id: userId, status: { not: "complete" } },
+              ],
             },
-          ],
-        },
-      })
-    : 0
-
-  const completedToday = userId && activeWorkspace
-    ? await prisma.task.count({
-        where: {
-          AND: [
-            taskAccessWhere(userId, "view", superAdmin),
-            { workspace_id: activeWorkspace.id },
-            {
-              assignee_id: userId,
-              completed_at: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+            include: { project: true, client: true },
+            orderBy: { due_date: "asc" },
+            take: 5,
+          }),
+          prisma.task.count({
+            where: {
+              AND: [
+                taskAccessWhere(userId, "view", superAdmin),
+                { workspace_id: activeWorkspace.id },
+                { assignee_id: userId, status: { not: "complete" } },
+              ],
             },
-          ],
-        },
-      })
-    : 0
+          }),
+          prisma.project.findMany({
+            where: {
+              workspace_id: activeWorkspace.id,
+              archived: false,
+              ...projectAccessWhere(userId, "view", superAdmin),
+            },
+            include: { sections: { include: { _count: { select: { tasks: true } } } } },
+            orderBy: { updated_at: "desc" },
+            take: 6,
+          }),
+          prisma.task.count({
+            where: {
+              AND: [
+                taskAccessWhere(userId, "view", superAdmin),
+                { workspace_id: activeWorkspace.id },
+                {
+                  assignee_id: userId,
+                  status: { not: "complete" },
+                  due_date: { lt: new Date() },
+                },
+              ],
+            },
+          }),
+          prisma.task.count({
+            where: {
+              AND: [
+                taskAccessWhere(userId, "view", superAdmin),
+                { workspace_id: activeWorkspace.id },
+                {
+                  assignee_id: userId,
+                  completed_at: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+                },
+              ],
+            },
+          }),
+        ])
+      : [[], 0, [], 0, 0] as const
 
   // Greeting based on time
   const hour = new Date().getHours()
